@@ -3,6 +3,90 @@ title: Testing contract
 description: Deterministic, integration, and native acceptance responsibilities.
 ---
 
+## Shortcut recovery regression checks
+
+Run `go test -race ./internal/shortcut ./internal/settings ./internal/input ./internal/platform ./internal/app`
+and `npx playwright test --config shortcut-recovery.config.ts` from `frontend`
+(for the browser command only). The browser fixture uses the real generated retry
+binding and Wails request envelope with a mocked transport, not native keyboard or
+permission access. It covers failure/success refresh, no mount retry, pending/busy
+disabling, clearing unavailable hold, and preserving a dirty draft. Native-hook
+unit tests cover unchanged-chord rearm, loss cancellation, fresh reducer edges,
+released-key checks around tap creation, and failed replacement preservation.
+These checks do not substitute for packaged-app keyboard/permission acceptance.
+
+## Native macOS acceptance
+
+[ADR 0013](../../decisions/0013-native-macos-boundary/) defines the Mac boundary.
+Run the deterministic Go and frontend suites on macOS, then exercise a packaged
+app with a stable bundle identity. Tests guarded by `FREEHAND_NATIVE_*` are opt-in:
+a skipped acceptance test proves nothing about native behavior. Do not prompt, type
+into arbitrary user apps, record audio, or access a live credential account in CI.
+
+Native verification must separately cover:
+
+- First launch, menu-bar icon, native titlebars/Edit menu, close-to-hide, Dock reopen
+  (main window only), encrypted second launch and bounded Quit cleanup.
+- Denied/authorized microphone behavior, explicit-device/default routing, unplug,
+  repeated start/stop/cancel, live PCM format, output pause/seek/restart and close.
+- Toggle/show and hold press/release, repeat suppression, modifier-only chords,
+  both physical modifier sides, Secure Input, tap disablement and shortcut capture
+  cancellation. Re-test after granting/revoking Input Monitoring/Accessibility.
+- Disposable editable targets: Unicode/emoji/newlines and unchanged clipboard.
+  Changing fields within the same window delivers to the current field; changing
+  app/window, closing/reusing the process or losing verifiable window identity
+  requires explicit copy. Do not restore target focus automatically.
+- Delivery guards: unavailable Accessibility, active Secure Input, held physical
+  modifiers and cancellation before/during chunks. Editor roles, AXEnabled,
+  protected-content metadata, AXValue settability and element identity are not
+  required. Do not claim detection of every custom secure field.
+- Rejection diagnostics: capture/validate/send reasons remain bounded and scoped
+  to their recording generation; unknown errors use generic copy guidance. Check
+  partial-delivery warnings and explicit Copy without automatic clipboard fallback
+  or retries. A rejected send is not evidence that nothing was typed.
+- Overlay first show/update/hide/close without key-window or target changes; every
+  layout, anchor and visualizer, multi-monitor placement, reduced motion/contrast,
+  bounded captions, hidden timers and shutdown.
+- Disposable Keychain account set/get/update/delete, denial mapping and no plaintext
+  fallback. Start-at-login exact bundle path, disable/removal and actual next login.
+- Real bundle/signature/entitlement inspection; Intel execution and signed update
+  application are distinct from an Apple Silicon build or a local ad-hoc signature.
+
+Record commands, actual results and unverified cases in the work item. Live inference
+uses only an explicitly selected endpoint/model; do not qualify a model inventory.
+Microphone or keyboard denial must leave file transcription and TTS independently usable.
+
+Insertion fixtures in `internal/platform`, `internal/insertion` and
+`internal/dictation` cover native predicate categories, app/window validation,
+first-failure preservation, raw-error redaction and capture-rejection lifetime.
+`frontend/tests/browser/insertion-diagnostics.spec.ts` uses synthetic service
+responses to check copy-required explanations and recovery presentation. These
+fixtures do not establish delivery into another application. Rerun the integrated
+suites after policy changes; focused race passes do not qualify the full build.
+
+## Public download selection
+
+Run the pure release/OS-selection tests with `npm --prefix site test`. Browser
+checks reuse the frontend's pinned Playwright installation and never download or
+execute release binaries:
+
+```sh
+npm ci --prefix frontend
+npm exec --prefix frontend -- playwright install chromium
+npm --prefix site run build
+npm --prefix site run test:browser
+CI=true npm --prefix site run build
+CI=true SITE_TEST_BASE=/freehand-stt/ npm --prefix site run test:browser
+```
+
+The second build/run pair exercises the production GitHub Pages base path.
+Keep the preview environment consistent with the build. Browser fixtures cover
+Windows, both known Mac architectures, ambiguous Mac architecture, unsupported
+platforms, partial/missing/malformed releases, API failure/timeout and no JavaScript.
+All supported alternatives remain visible. Synthetic release assets establish
+selection behavior, not public availability or native application acceptance.
+The test preview uses its own port and bypasses Astro's development preview lock.
+
 ## CI workflow acceptance
 
 Run the dependency-free selection/gate regressions and workflow wiring checks:
@@ -130,14 +214,14 @@ spacing in both sizes and states, disabled appearance, keyboard focus/Space,
 and right-to-left placement. Check each Settings selector, keyboard access,
 available-only choices and the explanation for an unavailable saved selection, save/reopen persistence, and
 independent STT/processing/TTS choices. Confirm that S1-mini controls remain a
-separate preset. Using only a model explicitly chosen by the operator, compare
+separate preset. Using only an explicitly selected model, compare
 Generic and the applicable dedicated profile for normal transcription, file
 streaming, cleanup, and speech playback. Never invoke model inventories.
 Builds and fixture tests do not establish this interactive or live-server acceptance.
 
 ## Task-local setup acceptance
 
-Use an isolated configuration for fresh-install review, preserving the operator's live
+Use an isolated configuration for fresh-install review, preserving existing live
 settings and credential store. Start independently with Voice, Audio file, and Text to
 speech. Add a connection from each picker, verify the purpose is preselected and cannot
 be removed, and verify Save and use returns to the same task with the new selection.
@@ -223,7 +307,7 @@ device labels, and provider errors must not appear in captured records.
 
 For interactive review, use `wails3 task dev` and inspect its terminal, not a
 production-tagged release executable: the existing Wails production sink
-discards output. With only the operator-selected model, observe a successful
+discards output. With only an explicitly selected model, observe a successful
 operation, cancellation, a recoverable failure, and quit during active work.
 Check workflow/generation correlation, timing and terminal levels against the
 [logging contract](../../safety/logging/). No per-frame/progress spam or content
@@ -495,7 +579,7 @@ Assign then clear that shortcut and confirm tray access remains available.
 Repeat selection from the home rack, including failed saves and role filtering;
 confirm its selectors match Settings and its cards use the same single border
 and fill. Browser fixtures and native builds do not replace interactive Windows acceptance.
-Use only operator-selected models for deliberate live inference acceptance.
+Use only explicitly selected models for deliberate live inference acceptance.
 
 For connection navigation, open Settings → Connections and Manage connections from
 each workflow picker: both open the list. Edit connection opens the selected row.

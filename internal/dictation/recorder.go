@@ -89,6 +89,7 @@ type recorder struct {
 	transition         sync.Mutex
 	status             Status
 	generation         uint64
+	cancelEpoch        uint64 // Fences starts still preparing their run context.
 	ctx                context.Context
 	rootContext        context.Context
 	cancel             context.CancelFunc
@@ -103,7 +104,7 @@ type recorder struct {
 	history            *history.Store
 	changed            func(Status)
 	closed             atomic.Bool
-	targets            map[uint64]insertion.Target
+	targets            map[uint64]capturedTarget
 	pending            string
 	runProfiles        map[uint64]settings.RequestProfile
 	runDetails         map[uint64]history.HistoryRunDetails
@@ -111,6 +112,13 @@ type recorder struct {
 	scheduleCompletion func(func()) bool
 	newDetector        func(config.VADMode) (audio.VoiceDetector, error)
 	logger             *slog.Logger
+}
+
+// The bounded capture reason has exactly the target's generation and lifetime.
+// Deleting a run's target on any terminal path also discards its diagnostic.
+type capturedTarget struct {
+	target    insertion.Target
+	rejection error
 }
 
 type stoppedRecording struct {
@@ -149,7 +157,7 @@ func newRecorder(cap audio.Capture, p insertion.Platform, client *inference.Clie
 	if logger == nil {
 		logger = diagnostics.DiscardLogger()
 	}
-	return &recorder{status: Status{State: Idle}, rootContext: context.Background(), capture: cap, targetPlatform: p, policy: insertion.Policy{Platform: p}, client: client, processor: processor, settings: source, profiles: profiles, history: store, changed: changed, targets: make(map[uint64]insertion.Target), runProfiles: make(map[uint64]settings.RequestProfile), runDetails: make(map[uint64]history.HistoryRunDetails), logger: logger, newDetector: func(mode config.VADMode) (audio.VoiceDetector, error) {
+	return &recorder{status: Status{State: Idle}, rootContext: context.Background(), capture: cap, targetPlatform: p, policy: insertion.Policy{Platform: p}, client: client, processor: processor, settings: source, profiles: profiles, history: store, changed: changed, targets: make(map[uint64]capturedTarget), runProfiles: make(map[uint64]settings.RequestProfile), runDetails: make(map[uint64]history.HistoryRunDetails), logger: logger, newDetector: func(mode config.VADMode) (audio.VoiceDetector, error) {
 		nativeMode := webrtcvad.ModeAggressive
 		switch mode {
 		case config.VADModeQuality:
@@ -226,6 +234,9 @@ func (c *recorder) startWithMode(mode RecordingMode) error {
 		return errors.New("recording mode is invalid")
 	}
 	startRequested := time.Now()
+	c.mu.Lock()
+	epoch := c.cancelEpoch
+	c.mu.Unlock()
 	c.transition.Lock()
 	defer c.transition.Unlock()
 	c.mu.Lock()
@@ -237,6 +248,10 @@ func (c *recorder) startWithMode(mode RecordingMode) error {
 		c.mu.Unlock()
 		return errors.New("dictation is already active")
 	}
+	if c.cancelEpoch != epoch {
+		c.mu.Unlock()
+		return context.Canceled
+	}
 	c.mu.Unlock()
 	profile, err := c.captureRequestProfile()
 	if err != nil {
@@ -247,11 +262,12 @@ func (c *recorder) startWithMode(mode RecordingMode) error {
 		profile.VoiceCredential = ""
 		profile.PostProcessingCredential = ""
 	}()
-	target, _ := c.targetPlatform.CaptureTarget()
+	target, captureErr := c.targetPlatform.CaptureTarget()
 	// Capture failures deliberately produce an invalid target. Recording may
 	// continue, but final text can only be copied by an explicit user action.
-	if !target.Valid() {
+	if captureErr != nil || !target.Valid() {
 		target = insertion.Target{}
+		captureErr = insertion.CopyRequired(captureErr)
 	}
 	c.mu.Lock()
 	if c.closed.Load() {
@@ -261,6 +277,10 @@ func (c *recorder) startWithMode(mode RecordingMode) error {
 	if c.status.State != Idle && c.status.State != Failed {
 		c.mu.Unlock()
 		return errors.New("dictation is already active")
+	}
+	if c.cancelEpoch != epoch {
+		c.mu.Unlock()
+		return context.Canceled
 	}
 	c.cancelWorkLocked()
 	c.pending = ""
@@ -285,7 +305,7 @@ func (c *recorder) startWithMode(mode RecordingMode) error {
 		c.status.AutoStopState = AutoStopWaiting
 		c.status.AutoStopDurationMilliseconds = cfg.AutoStopSilenceMS
 	}
-	c.targets[gen] = target
+	c.targets[gen] = capturedTarget{target: target, rejection: captureErr}
 	c.runProfiles[gen] = profile
 	c.runDetails[gen] = history.HistoryRunDetails{
 		Source:                            history.HistorySourceVoice,
@@ -846,11 +866,14 @@ func (c *recorder) completeStopped(work *stoppedRecording) error {
 	target := c.targets[gen]
 	delete(c.targets, gen)
 	deliveryMode := insertionMode(cfg.AutoInsert)
-	e = c.policy.Deliver(ctx, target, text, deliveryMode)
+	e = c.policy.Deliver(ctx, target.target, text, deliveryMode)
+	if errors.Is(e, insertion.ErrCopyRequired) && target.rejection != nil {
+		e = target.rejection
+	}
 	outcome := history.HistoryInserted
 	if errors.Is(e, insertion.ErrCopyRequired) {
 		c.pending = text
-		message := "Transcript ready—copy required"
+		message := insertion.CopyRequiredMessage(e)
 		if deliveryMode == insertion.ManualCopy {
 			message = "Transcript ready to copy"
 			e = nil
@@ -859,7 +882,7 @@ func (c *recorder) completeStopped(work *stoppedRecording) error {
 		outcome = history.HistoryCopyRequired
 	} else if e != nil {
 		c.pending = text
-		c.status = Status{State: Failed, Generation: gen, Message: "Transcript ready—copy required", CanCopy: true}
+		c.status = Status{State: Failed, Generation: gen, Message: insertion.CopyRequiredMessage(e), CanCopy: true}
 		outcome = history.HistoryFailed
 	} else if processingFallback {
 		message := "Post-processing failed; raw transcript used"
@@ -917,31 +940,42 @@ func boundedLabel(value string, maximum int) string {
 }
 
 func (c *recorder) cancelRecording() error {
+	// Signal and fence this run before waiting for startup/stop to relinquish
+	// device ownership. In particular, microphone authorization needs this
+	// context cancellation to return from Start.
+	c.mu.Lock()
+	c.cancelEpoch++
+	activeGeneration := c.status.Generation
+	startedAt := c.status.StartedAt
+	c.cancelWorkLocked()
+	if c.status.State != Idle && c.status.State != Cancelling {
+		c.generation++
+		clear(c.targets)
+		clear(c.runProfiles)
+		clear(c.runDetails)
+		c.pending = ""
+		c.status = Status{State: Cancelling, Generation: c.generation, Message: "Cancelling"}
+	} else if c.closed.Load() && c.status.State == Idle {
+		c.status = Status{State: Idle, Generation: c.generation}
+	}
+	s := c.status
+	c.mu.Unlock()
+
 	c.transition.Lock()
 	defer c.transition.Unlock()
 	c.mu.Lock()
-	if c.status.State == Idle {
-		c.cancelWorkLocked()
-		if c.closed.Load() {
-			c.status = Status{State: Idle, Generation: c.generation}
-		}
+	// Another canceller may already have cleaned up, and a subsequent start
+	// may own the device. Never redirect an old cancellation to that run.
+	if s.State != Cancelling || c.status.Generation != s.Generation || c.status.State != Cancelling {
 		c.mu.Unlock()
 		return nil
 	}
-	activeGeneration := c.status.Generation
-	startedAt := c.status.StartedAt
-	c.generation++
-	clear(c.targets)
-	clear(c.runProfiles)
-	clear(c.runDetails)
-	c.pending = ""
-	c.cancelWorkLocked()
+	// Startup can attach these workers after cancellation is signalled. Take
+	// them only after acquiring transition, without overlapping native calls.
 	segmented := c.segmented
 	c.segmented = nil
 	live := c.realtime
 	c.realtime = nil
-	c.status = Status{State: Cancelling, Generation: c.generation, Message: "Cancelling"}
-	s := c.status
 	c.mu.Unlock()
 	c.logger.Info("dictation cancellation requested", "generation", activeGeneration)
 	c.publish(s)
