@@ -20,11 +20,15 @@
     OpenPermissionSettings: async () => {},
   });
   import { configurePickerFixture } from "./picker-data";
+  import { createRuntimeFixture } from "./runtime-fixture";
+  import { ProviderID } from "$bindings/managedruntime";
+  import { State } from "$lib/state";
   import { CancellablePromise } from "@wailsio/runtime";
   import { Action, Purpose } from "$bindings/savedconnection";
   import { CheckKind, CheckStatus } from "$bindings/connection";
   import { ID as ModelID, type Profile } from "$bindings/modelprofile";
   import { AuthenticationMode } from "$bindings/config";
+  import { ID as BackendID } from "$bindings/compatibility";
   import { Session } from "$lib/stores/session.svelte";
   import {
     settings,
@@ -45,6 +49,7 @@
   import { shortcutCapture } from "$lib/stores/shortcutCapture.svelte";
   import { ShortcutAction } from "$bindings/hotkey";
   let current = structuredClone(settings);
+  if (params.has("runtime-ready")) current.setupCompleted = true;
   if (new URLSearchParams(location.search).has("hold-degraded")) {
     current.holdShortcut = "F13";
     current.holdAvailable = false;
@@ -63,13 +68,14 @@
     }));
   }
   let retries = 0;
-  if (!new URLSearchParams(location.search).has("hold-binding")) setContext("hold-shortcut-retry", async () => {
-    retries++;
-    if (retries === 1) throw new Error("Secure Input is still active.");
-    current.holdAvailable = true;
-    current.holdAvailabilityReason = "Hold-to-talk is ready.";
-    return structuredClone(current);
-  });
+  if (!new URLSearchParams(location.search).has("hold-binding"))
+    setContext("hold-shortcut-retry", async () => {
+      retries++;
+      if (retries === 1) throw new Error("Secure Input is still active.");
+      current.holdAvailable = true;
+      current.holdAvailabilityReason = "Hold-to-talk is ready.";
+      return structuredClone(current);
+    });
   if (new URLSearchParams(location.search).get("platform") === "darwin") {
     current.platform = "darwin";
     current.useMica = true;
@@ -79,6 +85,7 @@
     entries: [
       {
         id: "original",
+        builtIn: false,
         name: "Original server",
         uses: [Purpose.Transcription],
         hasCredential: false,
@@ -95,9 +102,16 @@
     selected: { [Purpose.Transcription]: "original" },
   };
   if (new URLSearchParams(location.search).has("workflows")) {
-    const uses = [Purpose.Transcription, Purpose.Voice, Purpose.Cleanup, Purpose.Speech];
+    const uses = [
+      Purpose.Transcription,
+      Purpose.Voice,
+      Purpose.Cleanup,
+      Purpose.Speech,
+    ];
     current.savedConnections.entries![0].uses = uses;
-    current.savedConnections.selected = Object.fromEntries(uses.map((use) => [use, "original"]));
+    current.savedConnections.selected = Object.fromEntries(
+      uses.map((use) => [use, "original"]),
+    );
     const profile: Profile = {
       id: ModelID.Generic,
       name: "Generic",
@@ -135,14 +149,16 @@
     current.textToSpeech.model = "speech/tts";
     current.textToSpeech.voice = "alloy";
   }
-  if (new URLSearchParams(location.search).has("pickers")) configurePickerFixture(current);
+  if (new URLSearchParams(location.search).has("pickers"))
+    configurePickerFixture(current);
   const blank = new URLSearchParams(location.search).has("blank");
   if (blank) {
     current.savedConnections = { entries: [], selected: {} };
     current.setupCompleted = false;
     current.voiceTranscription.model = "";
     current.voiceTranscription.modelProfile = ModelID.Generic;
-    current.rememberedModels.defaults![Purpose.Voice]!.profile = ModelID.Generic;
+    current.rememberedModels.defaults![Purpose.Voice]!.profile =
+      ModelID.Generic;
     current.model = "";
   }
   const saves = controlledSaves((request) => {
@@ -153,7 +169,10 @@
         throw new Error("Unexpected connection action");
       const id = "created";
       if (change.activateFor === Purpose.Voice) {
-        next.voiceTranscription = { ...next.voiceTranscription, ...change.details };
+        next.voiceTranscription = {
+          ...next.voiceTranscription,
+          ...change.details,
+        };
       }
       next.savedConnections = {
         entries: [
@@ -161,6 +180,7 @@
           {
             id,
             name: change.name,
+            builtIn: false,
             uses: change.uses ?? [],
             details: change.details,
             hasCredential: false,
@@ -176,47 +196,141 @@
     return structuredClone(current);
   });
   if (child) current = wire(window.testConnectionWindows.settings());
-  const session = new Session(
-    serviceWithStatus(() => CancellablePromise.resolve(idle), {
-      input: { ListMicrophones: () => CancellablePromise.resolve([{ id: "default", name: "Fixture microphone", default: true }]) },
-      connection: {
-        TestConnection: () =>
-          CancellablePromise.resolve(
-            new URLSearchParams(location.search).has("attention")
-              ? {
-                  ...connectionResult,
-                  checks: [
-                    {
-                      kind: CheckKind.CheckModel,
-                      status: CheckStatus.CheckAttention,
-                      summary: "The selected model was not listed.",
-                      detail: "Refresh models to choose another model.",
-                    },
-                  ],
-                }
-              : connectionResult,
-          ),
+  const runtimeFixture = params.has("runtime")
+    ? createRuntimeFixture(
+        current.platform !== "darwin",
+        (p) => {
+          current = { ...current, managedRuntimes: p };
+        },
+        params.has("runtime-ready"),
+        params.get("runtime-provider") === "llama-cpp"
+          ? ProviderID.LlamaCPP
+          : params.get("runtime-provider") === "whisper-cpp"
+            ? ProviderID.WhisperCPP
+            : ProviderID.NeMoSpeechCPP,
+      )
+    : null;
+  if (runtimeFixture) window.testRuntime = runtimeFixture.control;
+  if (
+    runtimeFixture &&
+    current.managedRuntimes?.length &&
+    runtimeFixture.providers[0].id === ProviderID.NeMoSpeechCPP &&
+    params.has("runtime-ready")
+  ) {
+    const instance = current.managedRuntimes[0];
+    const profiles =
+      runtimeFixture.providers[0].models?.flatMap((m) =>
+        m.behavior ? [m.behavior] : [],
+      ) ?? [];
+    current.modelProfiles.voiceTranscription = profiles;
+    current.modelProfiles.transcription = profiles;
+    current.savedConnections.entries!.push({
+      id: "local-speech",
+      name: instance.name,
+      builtIn: !params.has("legacy-runtime"),
+      uses: [Purpose.Voice, Purpose.Transcription],
+      hasCredential: false,
+      details: {
+        managedInstanceID: instance.id,
+        compatibilityProfile: BackendID.$zero,
+        baseURL: "",
+        allowInsecureHTTP: false,
+        authenticationMode: AuthenticationMode.AuthenticationModeNone,
+        healthPath: "",
+        headers: {},
       },
-      settings: {
-        GetSettings: () => CancellablePromise.resolve(child ? wire(window.testConnectionWindows.settings()) : structuredClone(current)),
-        SaveSettings: (request) => child
-          ? CancellablePromise.resolve(window.testConnectionWindows.save(wire(request)))
-          : saves.save(wire(request)),
+    });
+    const managed = {
+      managedInstanceID: instance.id,
+      model: instance.model,
+      compatibilityProfile: BackendID.NeMoSpeechV1,
+      modelProfile: ModelID.Nemotron35,
+      baseURL: "",
+      allowInsecureHTTP: false,
+      authenticationMode: AuthenticationMode.AuthenticationModeNone,
+      healthPath: "",
+      headers: {},
+    };
+    current = {
+      ...current,
+      ...managed,
+      voiceTranscription: {
+        ...current.voiceTranscription,
+        ...managed,
+        realtime: true,
       },
-    }),
-  );
+    };
+    current.savedConnections.selected = {
+      [Purpose.Voice]: "local-speech",
+      [Purpose.Transcription]: "local-speech",
+    };
+  }
+  const session = new Session({
+    ...serviceWithStatus(
+      () =>
+        CancellablePromise.resolve(
+          params.has("work-busy") ? { ...idle, state: State.Recording } : idle,
+        ),
+      {
+        input: {
+          ListMicrophones: () =>
+            CancellablePromise.resolve([
+              { id: "default", name: "Fixture microphone", default: true },
+            ]),
+        },
+        connection: {
+          TestConnection: () =>
+            CancellablePromise.resolve(
+              new URLSearchParams(location.search).has("attention")
+                ? {
+                    ...connectionResult,
+                    checks: [
+                      {
+                        kind: CheckKind.CheckModel,
+                        status: CheckStatus.CheckAttention,
+                        summary: "The selected model was not listed.",
+                        detail: "Refresh models to choose another model.",
+                      },
+                    ],
+                  }
+                : connectionResult,
+            ),
+        },
+        settings: {
+          GetSettings: () =>
+            CancellablePromise.resolve(
+              child
+                ? wire(window.testConnectionWindows.settings())
+                : structuredClone(current),
+            ),
+          SaveSettings: (request) =>
+            child
+              ? CancellablePromise.resolve(
+                  window.testConnectionWindows.save(wire(request)),
+                )
+              : saves.save(wire(request)),
+        },
+      },
+    ),
+    runtime: runtimeFixture?.service,
+  });
   session.editor.applySettingsSnapshot(structuredClone(current));
+  runtimeFixture?.subscribe((status) => session.runtime.applyStatus(status));
   if (new URLSearchParams(location.search).has("workflows")) {
     session.editor.processingProfiles = structuredClone(processingProfiles);
   }
 
   if (!child) {
     window.testSaves = saves.control;
-    installConnectionWindows({
-      settings: () => structuredClone(current),
-      save: (request) => saves.save(wire(request)),
-      apply: (saved) => session.editor.applySettingsSnapshot(wire(saved)),
-    }, integrated, params.has("general"));
+    installConnectionWindows(
+      {
+        settings: () => structuredClone(current),
+        save: (request) => saves.save(wire(request)),
+        apply: (saved) => session.editor.applySettingsSnapshot(wire(saved)),
+      },
+      integrated,
+      params.has("general"),
+    );
   }
 </script>
 

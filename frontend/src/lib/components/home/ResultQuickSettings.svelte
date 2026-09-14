@@ -1,5 +1,8 @@
 <script lang="ts">
   import VoiceTranscriptionSettings from "./VoiceTranscriptionSettings.svelte";
+  import type { ManagedRuntimeState } from "$lib/stores/managed-runtime.svelte";
+  import { runtimePresentation } from "$lib/utils/managedRuntime";
+
   import MicIcon from "@lucide/svelte/icons/mic";
   import TextCursorInputIcon from "@lucide/svelte/icons/text-cursor-input";
   import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
@@ -16,6 +19,8 @@
   let {
     editor,
     settings,
+    runtimeState,
+    onOpenLocalRuntime,
     showCapture,
     disabled,
     onAddConnection,
@@ -26,6 +31,8 @@
   }: {
     editor: SettingsEditor;
     settings: Settings;
+    runtimeState: ManagedRuntimeState;
+    onOpenLocalRuntime: () => void;
     showCapture: boolean;
     disabled: boolean;
     onAddConnection: (purpose: Purpose) => void;
@@ -34,6 +41,19 @@
     onOpenAudioSettings: () => void;
     onOpenGeneralSettings: () => void;
   } = $props();
+  const instanceID = $derived(
+    (showCapture
+      ? settings.voiceTranscription.managedInstanceID
+      : settings.managedInstanceID) ?? "",
+  );
+  const runtime = $derived(runtimeState.statusFor(instanceID));
+  const managed = $derived(!!instanceID);
+  const local = $derived(runtimePresentation(runtime?.status));
+  const localModel = $derived(
+    local.selected?.name ||
+      runtime?.instance.model ||
+      "No local model selected",
+  );
   type Panel = "audio" | "stt" | "cleanup" | "delivery";
   let activePanel = $state<Panel | null>(null);
   const panels = $derived<Panel[]>(
@@ -72,6 +92,17 @@
       >
         {#if panel === "audio"}<MicIcon class="size-4" />
         {:else if panel === "delivery"}<TextCursorInputIcon class="size-4" />
+        {:else if panel === "stt" && managed}
+          <ProviderIcon
+            profile={runtime?.instance.provider ??
+              (showCapture
+                ? settings.voiceTranscription.compatibilityProfile
+                : settings.compatibilityProfile)}
+            size={16}
+          />
+          <span class="max-w-48 truncate text-[13px]" title={localModel}
+            >{localModel}</span
+          >
         {:else}<ProviderIcon
             profile={panel === "stt"
               ? showCapture
@@ -87,7 +118,9 @@
               class={settings.postProcessing.enabled
                 ? "size-1.5 rounded-full bg-success"
                 : "size-1.5 rounded-full bg-muted-foreground"}
-              aria-label={settings.postProcessing.enabled ? "Enabled" : "Disabled"}
+              aria-label={settings.postProcessing.enabled
+                ? "Enabled"
+                : "Disabled"}
             ></span>{/if}
         {/if}
         <ChevronDownIcon class="size-3 text-muted-foreground" />
@@ -98,6 +131,8 @@
             {editor}
             {settings}
             {disabled}
+            runtime={runtimeState}
+            onManageRuntime={() => openSettings(onOpenLocalRuntime)}
             onAddConnection={(purpose) => {
               activePanel = null;
               onAddConnection(purpose);
@@ -111,17 +146,25 @@
             savedField={editor.quickSettingsSaved}
             {disabled}
             section={panel}
-            onUpdate={(patch, field) => editor.updateQuickSettings(patch, field)}
+            onUpdate={(patch, field) =>
+              editor.updateQuickSettings(patch, field)}
             onOpenAudioSettings={() => openSettings(onOpenAudioSettings)}
             onOpenDeliverySettings={() => openSettings(onOpenGeneralSettings)}
           />
         {:else}
           <QuickSettings
+            runtime={runtimeState}
+            onManageRuntime={() => openSettings(onOpenLocalRuntime)}
             onEnterTranscription={() =>
               void editor.ensureConnectionMetadata(Purpose.Transcription, true)}
-            onEnterCleanup={() => void editor.ensureConnectionMetadata(Purpose.Cleanup, true)}
-            sttMetadataStatus={editor.connectionMetadataStatus(Purpose.Transcription)}
-            processingMetadataStatus={editor.connectionMetadataStatus(Purpose.Cleanup)}
+            onEnterCleanup={() =>
+              void editor.ensureConnectionMetadata(Purpose.Cleanup, true)}
+            sttMetadataStatus={editor.connectionMetadataStatus(
+              Purpose.Transcription,
+            )}
+            processingMetadataStatus={editor.connectionMetadataStatus(
+              Purpose.Cleanup,
+            )}
             embedded
             showCapture={false}
             showTranscription={panel === "stt"}
@@ -145,13 +188,15 @@
               onAddConnection(purpose);
             }}
             onChangeConnection={(change) => editor.changeConnection(change)}
-            onUpdate={(patch, field) => editor.updateQuickSettings(patch, field)}
+            onUpdate={(patch, field) =>
+              editor.updateQuickSettings(patch, field)}
             onTestConnection={() => editor.testConnection(editor.applied, "")}
             onTestProcessingConnection={() =>
               editor.testPostProcessingConnection(editor.applied, "")}
             disabled={disabled || editor.saving}
             onOpenServerSettings={() => openSettings(onOpenServerSettings)}
-            onOpenProcessingSettings={() => openSettings(onOpenProcessingSettings)}
+            onOpenProcessingSettings={() =>
+              openSettings(onOpenProcessingSettings)}
             onOpenAudioSettings={() => openSettings(onOpenAudioSettings)}
             onOpenDeliverySettings={() => openSettings(onOpenGeneralSettings)}
           />

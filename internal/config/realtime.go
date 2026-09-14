@@ -12,6 +12,7 @@ import (
 // VoiceTranscriptionSettings owns the one active microphone provider/model.
 // Realtime selects a transport for that same combination; files are independent.
 type VoiceTranscriptionSettings struct {
+	ManagedInstanceID    string               `json:"managedInstanceID,omitempty"`
 	Realtime             bool                 `json:"realtime"`
 	CompatibilityProfile compatibility.ID     `json:"compatibilityProfile"`
 	ModelProfile         modelprofile.ID      `json:"modelProfile"`
@@ -32,13 +33,26 @@ func DefaultVoiceTranscription() VoiceTranscriptionSettings {
 	return VoiceTranscriptionSettings{CompatibilityProfile: compatibility.Generic, ModelProfile: modelprofile.Generic, AuthenticationMode: AuthenticationModeNone, Language: "auto", Headers: map[string]string{}, TimeoutSeconds: DefaultTranscriptionTimeoutSeconds, Captions: true}
 }
 func ValidateVoiceTranscription(v VoiceTranscriptionSettings) error {
-	if err := modelprofile.ValidateTranscription(v.ModelProfile, v.CompatibilityProfile, v.Language, v.TranscriptionOptions.Inference()); err != nil {
+	return validateVoiceTranscription(v, false)
+}
+
+func validateVoiceTranscription(v VoiceTranscriptionSettings, stored bool) error {
+	if err := validateVoiceOptions(v, stored); err != nil {
 		return err
 	}
-	if err := validatePersistedSTTSettings(WithVoiceTranscription(Settings{VoiceTranscription: v})); err != nil {
+	return validatePersistedSTTSettings(WithVoiceTranscription(Settings{VoiceTranscription: v}))
+}
+
+func validateVoiceOptions(v VoiceTranscriptionSettings, stored bool) error {
+	validateTranscription := modelprofile.ValidateTranscription
+	if stored {
+		validateTranscription = modelprofile.ValidateStoredTranscription
+	}
+	if err := validateTranscription(v.ModelProfile, v.CompatibilityProfile, v.Language, v.TranscriptionOptions.Inference()); err != nil {
 		return err
 	}
-	if v.BaseURL == "" && (v.AuthenticationMode != AuthenticationModeNone || v.Model != "") {
+
+	if v.ManagedInstanceID == "" && v.BaseURL == "" && (v.AuthenticationMode != AuthenticationModeNone || v.Model != "") {
 		return errors.New("voice transcription requires a connection")
 	}
 	if err := speechlanguage.Validate(v.Language); err != nil {
@@ -48,7 +62,13 @@ func ValidateVoiceTranscription(v VoiceTranscriptionSettings) error {
 		return errors.New("voice transcription timeout is out of range")
 	}
 	if v.ModelProfile == modelprofile.Nemotron35 {
-		if err := modelprofile.ValidateNemotron(v.Language, v.RealtimeOptions()); err != nil {
+		var err error
+		if stored {
+			err = modelprofile.ValidateNemotronOptions(v.RealtimeOptions())
+		} else {
+			err = modelprofile.ValidateNemotron(v.Language, v.RealtimeOptions())
+		}
+		if err != nil {
 			return err
 		}
 	} else if v.RealtimeOptions() != (modelprofile.NemotronOptions{}) {
@@ -58,7 +78,7 @@ func ValidateVoiceTranscription(v VoiceTranscriptionSettings) error {
 		if _, err := modelprofile.Resolve(v.ModelProfile, v.CompatibilityProfile, compatibility.Realtime); err != nil {
 			return err
 		}
-		if v.BaseURL == "" || v.Model == "" {
+		if (v.ManagedInstanceID == "" && v.BaseURL == "") || v.Model == "" {
 			return errors.New("choose a connection and loaded model before enabling realtime transcription")
 		}
 	}
@@ -69,6 +89,7 @@ func ValidateVoiceTranscription(v VoiceTranscriptionSettings) error {
 // completed transcription workflow without changing file settings in storage.
 func WithVoiceTranscription(v Settings) Settings {
 	s := v.VoiceTranscription
+	v.ManagedInstanceID = s.ManagedInstanceID
 	v.CompatibilityProfile = s.CompatibilityProfile
 	v.ModelProfile = s.ModelProfile
 	v.BaseURL = s.BaseURL
@@ -87,8 +108,19 @@ func VoiceRealtimeEligible(v VoiceTranscriptionSettings) bool {
 	c, err := modelprofile.Resolve(v.ModelProfile, v.CompatibilityProfile, compatibility.Transcription)
 	return err == nil && c.Capabilities.Realtime
 }
+
+// ValidateVoiceRecording admits an already resolved request, not a durable
+// managed reference. Runtime identity/ownership is resolved by settings first.
 func ValidateVoiceRecording(v VoiceTranscriptionSettings) error {
-	if err := ValidateVoiceTranscription(v); err != nil {
+	if err := validateVoiceOptions(v, false); err != nil {
+		return err
+	}
+	if v.ManagedInstanceID != "" {
+		if err := validateResolvedManagedTransport(v.BaseURL, v.AuthenticationMode, v.HealthPath, v.Headers); err != nil {
+			return err
+		}
+	}
+	if err := ValidateSTTConnection(v.BaseURL, v.AllowInsecureHTTP, v.AuthenticationMode, v.Model, v.HealthPath, v.Headers); err != nil {
 		return err
 	}
 	c, err := modelprofile.Resolve(v.ModelProfile, v.CompatibilityProfile, compatibility.Transcription)

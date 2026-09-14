@@ -50,6 +50,7 @@ export default defineConfig({
             { label: "Download Freehand", link: "/download/" },
             { slug: "docs/guides/windows-installer" },
             { slug: "docs/guides/macos-setup" },
+            { slug: "docs/guides/local-runtime" },
             { slug: "docs/guides/connect-a-server" },
             { slug: "docs/guides/saved-connections" },
             { slug: "docs/models", label: "Choosing a model profile" },
@@ -125,11 +126,7 @@ export default defineConfig({
             { slug: "docs/safety/logging" },
             { slug: "docs/safety/windows" },
             { slug: "docs/safety/native-test-checklist" },
-            {
-              label: "Architecture decisions",
-              collapsed: true,
-              items: [{ autogenerate: { directory: "docs/decisions" } }],
-            },
+
           ],
         },
       ],

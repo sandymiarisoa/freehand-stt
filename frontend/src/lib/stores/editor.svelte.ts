@@ -618,6 +618,7 @@ export class SettingsEditor {
   }
 
   beginConnection(connection?: Connection, purpose = Purpose.Voice) {
+    if (connection?.builtIn) return;
     if (this.runtimeDirty || this.saving) {
       this.#messages.reportInfo(
         "Save or discard feature settings before editing a connection.",
@@ -647,6 +648,26 @@ export class SettingsEditor {
       clearCredential: false,
     };
     this.#connectionBaseline = this.#connectionFields();
+  }
+  setConnectionTarget(managedInstanceID: string | undefined) {
+    const form = this.connectionDraft;
+    if (!form || this.saving) return;
+    form.credentialDraft = "";
+    form.clearCredential = false;
+    this.apiKey = "";
+    this.processingAPIKey = "";
+    this.ttsAPIKey = "";
+    this.clearKey = this.clearProcessingKey = this.clearTTSKey = false;
+    form.details = {
+      ...(managedInstanceID !== undefined ? { managedInstanceID } : {}),
+      compatibilityProfile:
+        managedInstanceID !== undefined ? ID.$zero : ID.Generic,
+      baseURL: "",
+      allowInsecureHTTP: false,
+      authenticationMode: AuthenticationMode.AuthenticationModeNone,
+      healthPath: "",
+      headers: {},
+    };
   }
   cancelConnectionEdit() {
     this.clearCredentialDraft();
@@ -705,6 +726,15 @@ export class SettingsEditor {
   ): Promise<boolean> {
     if (!this.draft || this.saving || this.quickSettingsPending.length)
       return false;
+    const target = this.applied?.savedConnections.entries?.find(
+      (c) => c.id === change.id,
+    );
+    if (target?.builtIn && change.action !== Action.Select) {
+      this.#messages.reportInfo(
+        "This connection is owned by its local runtime. Manage the runtime to change it.",
+      );
+      return false;
+    }
     if (
       this.runtimeDirty ||
       (this.connectionDraft &&
@@ -715,6 +745,28 @@ export class SettingsEditor {
         "Save or discard your current edits before changing connections.",
       );
       return false;
+    }
+    if (
+      change.details?.managedInstanceID !== undefined &&
+      change.details.managedInstanceID !== null
+    ) {
+      const details = change.details;
+      if (
+        !details.managedInstanceID ||
+        credentialDraft ||
+        clearCredential ||
+        details.baseURL ||
+        details.healthPath ||
+        Object.keys(details.headers ?? {}).length ||
+        details.allowInsecureHTTP ||
+        details.authenticationMode !== AuthenticationMode.AuthenticationModeNone
+      ) {
+        if (this.connectionDraft) this.connectionDraft.credentialDraft = "";
+        this.#messages.reportInfo(
+          "Managed connections require an instance and cannot contain a URL, headers, or credentials.",
+        );
+        return false;
+      }
     }
     this.saving = true;
     this.#messages.clear();
@@ -783,9 +835,17 @@ export class SettingsEditor {
   }
   chooseModel(purpose: Purpose, model: string): boolean {
     // Metadata reads do not lock local model drafts; every mutation guard remains.
-    if (!this.draft || !this.applied || this.saving || this.setupCompleting ||
-      this.managedConnectionTesting || this.configurationRetrying ||
-      this.configurationResetting || this.quickSettingsPending.length > 0) return false;
+    if (
+      !this.draft ||
+      !this.applied ||
+      this.saving ||
+      this.setupCompleting ||
+      this.managedConnectionTesting ||
+      this.configurationRetrying ||
+      this.configurationResetting ||
+      this.quickSettingsPending.length > 0
+    )
+      return false;
     model = model.trim();
     if (model === modelFor(this.draft, purpose)) return true;
     this.#retainModelDraft(purpose);
@@ -1123,10 +1183,8 @@ export class SettingsEditor {
 
   #automaticMetadataInputs = $state<Partial<Record<Purpose, string>>>({});
   connectionMetadataResult(purpose: Purpose): ConnectionResult | null {
-    if (
-      !this.applied ||
-      this.connectionResultStale(purpose, this.applied)
-    ) return null;
+    if (!this.applied || this.connectionResultStale(purpose, this.applied))
+      return null;
     return purpose === Purpose.Voice
       ? this.currentVoiceConnection
       : purpose === Purpose.Transcription
@@ -1147,7 +1205,8 @@ export class SettingsEditor {
           ? "ready"
           : "empty";
     return this.applied &&
-      this.#automaticMetadataInputs[purpose] === connectionInputKey(this.applied, purpose)
+      this.#automaticMetadataInputs[purpose] ===
+        connectionInputKey(this.applied, purpose)
       ? "failed"
       : "idle";
   }
@@ -1243,17 +1302,21 @@ export class SettingsEditor {
     this.sttConnectionTesting = true;
     if (clearExistingMessages) this.#messages.clear();
     try {
-      const result = await this.#service.connection.TestConnection({
-        baseURL: settings.baseURL,
-        compatibilityProfile: settings.compatibilityProfile,
-        allowInsecureHTTP: settings.allowInsecureHTTP,
-        authenticationMode: settings.authenticationMode,
-        model: settings.model,
-        healthPath: settings.healthPath ?? "",
-        headers: settings.headers,
-        options: modelOptions(settings, Purpose.Transcription),
-        credentialDraft: apiKey,
-      });
+      const result = settings.managedInstanceID
+        ? await this.#service.connection.TestSavedConnection(
+            settings.savedConnections.selected?.stt ?? "",
+          )
+        : await this.#service.connection.TestConnection({
+            baseURL: settings.baseURL,
+            compatibilityProfile: settings.compatibilityProfile,
+            allowInsecureHTTP: settings.allowInsecureHTTP,
+            authenticationMode: settings.authenticationMode,
+            model: settings.model,
+            healthPath: settings.healthPath ?? "",
+            headers: settings.headers,
+            options: modelOptions(settings, Purpose.Transcription),
+            credentialDraft: apiKey,
+          });
       if (revision === this.#sttConnectionRevision) {
         this.#testedInputs[Purpose.Transcription] = inputKey;
         this.connection = result;
@@ -1282,15 +1345,18 @@ export class SettingsEditor {
     this.processingConnectionTesting = true;
     this.#messages.clear();
     try {
-      const result =
-        await this.#service.connection.TestPostProcessingConnection({
-          baseURL: settings.postProcessing.baseURL,
-          compatibilityProfile: settings.postProcessing.compatibilityProfile,
-          allowInsecureHTTP: settings.postProcessing.allowInsecureHTTP,
-          model: settings.postProcessing.model,
-          options: modelOptions(settings, Purpose.Cleanup),
-          credentialDraft: apiKey,
-        });
+      const result = settings.postProcessing.managedInstanceID
+        ? await this.#service.connection.TestSavedConnection(
+            settings.savedConnections.selected?.cleanup ?? "",
+          )
+        : await this.#service.connection.TestPostProcessingConnection({
+            baseURL: settings.postProcessing.baseURL,
+            compatibilityProfile: settings.postProcessing.compatibilityProfile,
+            allowInsecureHTTP: settings.postProcessing.allowInsecureHTTP,
+            model: settings.postProcessing.model,
+            options: modelOptions(settings, Purpose.Cleanup),
+            credentialDraft: apiKey,
+          });
       if (revision === this.#processingConnectionRevision) {
         this.#testedInputs[Purpose.Cleanup] = inputKey;
         this.processingConnection = result;
@@ -1318,15 +1384,19 @@ export class SettingsEditor {
     this.ttsConnectionTesting = true;
     this.#messages.clear();
     try {
-      const result = await this.#service.connection.TestTextToSpeechConnection({
-        baseURL: settings.textToSpeech.baseURL,
-        compatibilityProfile: settings.textToSpeech.compatibilityProfile,
-        allowInsecureHTTP: settings.textToSpeech.allowInsecureHTTP,
-        authenticationMode: settings.textToSpeech.authenticationMode,
-        model: settings.textToSpeech.model,
-        options: modelOptions(settings, Purpose.Speech),
-        credentialDraft: apiKey,
-      });
+      const result = settings.textToSpeech.managedInstanceID
+        ? await this.#service.connection.TestSavedConnection(
+            settings.savedConnections.selected?.speech ?? "",
+          )
+        : await this.#service.connection.TestTextToSpeechConnection({
+            baseURL: settings.textToSpeech.baseURL,
+            compatibilityProfile: settings.textToSpeech.compatibilityProfile,
+            allowInsecureHTTP: settings.textToSpeech.allowInsecureHTTP,
+            authenticationMode: settings.textToSpeech.authenticationMode,
+            model: settings.textToSpeech.model,
+            options: modelOptions(settings, Purpose.Speech),
+            credentialDraft: apiKey,
+          });
       if (revision === this.#ttsConnectionRevision) {
         this.#testedInputs[Purpose.Speech] = inputKey;
         this.ttsConnection = result;

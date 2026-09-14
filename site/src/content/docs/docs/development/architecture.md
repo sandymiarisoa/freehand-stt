@@ -26,14 +26,231 @@ the memory-only playback session without another inference request.
 Readiness is task-specific, not an application-wide setup prerequisite:
 dictation owns recording setup, file transcription needs STT but no microphone
 or completed dictation setup, and the TTS composer needs its own enabled speech
-configuration but neither STT nor a microphone. These are client workflows, not
-bundled inference or conversation mode. The remote-first boundary and non-goals
-in [ADR 0005](../../decisions/0005-remote-first-product-direction/) remain unchanged.
+configuration but neither STT nor a microphone. Conversation mode remains out of
+scope. Inference runs on the user's chosen server or an explicitly installed
+optional Windows or macOS managed runtime; models and runtime binaries are not bundled.
+
+## Managed local speech
+
+`internal/managedruntime.Manager` owns the runtime inventory and independent
+per-instance workers. Provider adapters own installation, metadata catalogs,
+model acquisition, and process launch for NeMo, llama.cpp cleanup, and whisper.cpp
+completed transcription. The manager
+exposes a small instance-targeted Wails boundary and
+bounded status events, not upstream flags. Official versioned archives are
+checksum-verified before extraction is published. Model downloads use NeMo's
+own manager with a Freehand-owned cache; the GGML adapters download only their
+pinned catalog revisions with size and SHA-256 verification. Listing the catalog
+never loads models. Each provider is bounded to one installation and one process
+tree, including retired workers. Existing duplicate entries remain explicitly
+repairable without ID, Connection, or model rewrites. Different providers can run concurrently.
+
+Each configured runtime has a built-in row in connection state. Storage derives its
+stable identity and qualified uses and materializes it through ordinary settings
+transactions, preserving selection and remembered-option foreign keys. There is
+no additional runtime-event routing registry. Go rejects edits, rename, duplicate,
+and delete for built-in rows; legacy managed aliases and their selections remain
+intact. Runtime-owned transport/model fields are read-only in Connections, while
+task options retain their existing owners. Stopped rows remain available for
+explicit selection and repair, but requests fail closed until ready.
+
+Built-in name projection removes only the GGML default `(CPU)` suffix
+for its matching provider, leaving durable instance preferences, custom names,
+legacy aliases, IDs, and task selections intact. Installed backend presentation
+comes from the referenced runtime's `Status.backend`, never from a saved name.
+Runtime management, quick controls, and Connection status share that formatter;
+the binary label is not an inference-offload measurement.
+
+Acquisition events contain only bounded operation IDs, phases, counters, and
+terminal outcomes. GGML reports bytes written; NeMo observes metadata for the
+selected model's exact owned partial/final paths while its own manager runs.
+Neither raw child diagnostics nor paths enter renderer progress. Full transfer
+does not imply successful verification, and request admission does not imply
+operation success.
+The runtime manager renders this same status at the setup action and the matching
+model's catalog row, including cancellation and terminal outcomes. Catalog rows
+retain their position instead of regrouping on installation state changes.
+Collapsed provider rows expose selected-model acquisition, start/stop, cancellation,
+and bounded status through the same runtime store and dirty-draft action guard.
+Expanding the chevron reveals setup and maintenance, not another lifecycle owner.
+Provider artwork comes from the shared local branding registry. Managed Connection
+icons resolve the referenced instance's provider, since durable managed details
+intentionally contain no manual API profile. Quick settings pass their runtime
+inventory into connection pickers so artwork and status use the same session.
+
+The settings owner persists runtime instance definitions and ordinary Connections
+through the existing SQLite transaction. A managed Connection references an
+instance, not an ephemeral port. Each task independently selects its Connection;
+there is no global managed-mode routing override. Runtime instances own loaded
+models; Voice owns realtime, and task/model option ownership remains unchanged.
+Request admission resolves the selected instance and qualified contract into an
+immutable, credential-free loopback transport. Manual credentials and headers
+are never inherited by managed requests. An unavailable selected instance blocks
+that task without choosing another server. Cleanup remains independently selected
+and retains raw fallback when its captured endpoint is unavailable. Selecting a
+manual Connection is an explicit routing change, not a runtime lifecycle action.
+
+Managed Nemotron setup recommends realtime Voice. Files still use completed
+transcription. The existing STT and NeMo WebSocket clients remain transport
+owners; no runtime install/start logic belongs in them. Readiness must reflect
+the selected task's instance status rather than an unrelated runtime or manual
+connection. Runtime installation/catalog management remains separate from, and
+linked by, Connections and task quick settings.
+
+Task settings and quick settings replace manual model/profile pickers with
+instance-targeted controls below the Connection picker when that Connection is
+managed. Runtime identity and API-model diagnostics stay in runtime management,
+not repeated above the quick-settings model selector. The shared
+speech controls preserve voice, speed, and qualified language/style options;
+cleanup preserves its instruction and generation controls. These surfaces do not
+register providers or imply additional roles: NeMo qualifies transcription and
+Nemotron realtime, whisper.cpp qualifies completed transcription, and llama.cpp
+qualifies S1-mini cleanup. None of these managed adapters qualifies TTS.
+
+The adapter probes `/ready` and `/v1/models` at the server origin, but publishes
+`http://127.0.0.1:<port>/v1` as the speech API base. Completed microphone/file
+clients append `audio/transcriptions`; the realtime client appends `realtime`.
+Keep this distinction at the adapter boundary, not in shared client URL handling.
+
+llama.cpp likewise publishes `/v1` for the cleanup client, with S1-mini reasoning
+disabled. whisper.cpp instead publishes the server origin for native `/inference`
+requests and `/health` metadata. GGML installations use pinned CPU/CUDA recipes,
+host-aware recommendations, selected-model GPU warm-up, and a private output viewer.
+The adapter verifies the server and companion libraries as a pinned installation;
+its recorded backend determines controlled launch arguments. Backend changes
+require stopped, idle worker ownership and preserve model files, instance IDs,
+Connections, and startup preferences. Failed or cancelled acquisition retains
+the previous installation. NeMo's device policy is unchanged.
+
+`GetBinaryOptions` is an advisory, metadata-only boundary for new GGML
+installations. Shared platform recipes separate OS/architecture, pinned archives,
+layout, accelerator, and dependencies from provider/model contracts. On Windows
+x64, NVIDIA device 0 with driver >=551.78 and compute capability >=5.0 qualifies
+the pinned CUDA 12.4 recommendation; unknown or unsupported metadata selects CPU.
+Recommendation and installation admission share compatibility rules. The UI
+requires explicit acceptance before `InstallBackend`; the legacy `Install`
+operation retains its CPU default. No latest-release lookup, installation
+mutation, model execution, or free-VRAM-driven switching occurs during selection.
+NeMo retains its own binary-selection policy: Metal on Apple Silicon, CPU on
+Intel Macs, and its existing Windows driver checks. llama.cpp recommends Metal
+on Apple Silicon and CPU on Intel. Its pinned macOS binaries require 13.3;
+OS-version admission is separate from Freehand's 13.0 minimum. No macOS
+whisper.cpp recipe exists because upstream does not publish a server executable.
+Provider `backends` metadata drives the switching controls; unsupported providers
+remain visible with installation disabled.
+
+Pinned macOS tar.gz archives retain their upstream directory layout. The installer
+validates every entry, bounds expanded size, and resolves same-directory dylib
+aliases solely against regular files in the verified archive. It materializes
+aliases as copies and verifies their bytes and executable permissions before
+publication and launch. Traversal, escaping or cyclic links, hard links, special
+files, duplicate names, and unexpected installed files fail closed. Windows ZIP
+recipes retain their existing extraction and integrity rules.
+
+### Download source metadata
+
+Download provenance is additive metadata on `GetProviders`: runtime sources
+project the platform recipes; model sources project the same
+specifications used for acquisition and verification. It is not a second pin
+registry or evidence of the currently installed files. The renderer uses the
+generated `RuntimeSource`/`ModelSource` DTOs, with provider-catalog metadata as
+the source for status rows. No filesystem, network, or model execution is needed
+to inspect sources. Runtime artifacts identify platform/backend and include
+companion archives. Direct GGML model downloads identify their Hugging Face
+repository; NeMo identifies delegated acquisition and its release-index pins
+without fabricating an upstream hosting URL. Source links open through Wails'
+external browser API, never as remote content inside the settings WebView.
+
+### Startup ownership and progress
+
+Windows owns children through a Job Object, including model-manager subprocesses.
+macOS re-execs a private supervisor before application startup. A lifetime pipe
+from Freehand and kqueue child-exit observation own a dedicated runtime process
+group. Pipe EOF on cancellation, Quit, or parent crash kills the group. Natural
+server exit also kills remaining descendants. The supervisor observes exit before
+reaping the leader, preventing process-group identity reuse during cleanup.
+Only the exact child PID is published internally; libproc verifies its IPv4
+loopback listening socket before endpoint admission. The inherited environment
+excludes DYLD, user PATH, proxy/auth, and runtime configuration overrides; NeMo
+gets only a fixed system PATH for its explicit curl downloads.
+The server listens only on `127.0.0.1`; verification, selected-model readiness,
+and required GPU warm-up precede endpoint admission. Runtime/model hashing before
+launch is cancellable. After process creation, readiness and warm-up share a 120-second timeout;
+failure or cancellation has an additional four-second owned-process drain bound.
+A deadline is not proof of child exit: retain ownership and reject replacement
+until the process has actually stopped. Wails shutdown cancels work and closes
+all owned process trees against its separate overall eight-second bound.
+
+GPU llama.cpp and NeMo retain upstream built-in warm-up before readiness; CPU
+launches retain `--no-warmup`. CUDA whisper.cpp instead receives one multipart
+`/inference` request containing one second of synthetic silence after readiness,
+against only its already-loaded selected model. The response is bounded and
+discarded, never routed through cleanup, history, or user result publication.
+This is startup work, including saved start-at-launch intent, not a health probe
+or model-discovery operation. No inventory is invoked and no remote fallback
+is admitted.
+
+`Status.startupProgress` reports phase-specific elapsed time for
+`verifying_runtime`, `verifying_model`, `launching`, `waiting_ready`,
+`loading_warming`, and `warming_up` as applicable. Upstream loading and warm-up
+share `loading_warming` when their boundary is not observable. Status derives
+from lifecycle transitions, not output parsing or elapsed-time percentages.
+
+Terminal operation state and admission reopening commit together under the worker
+mutex. A separate publication mutex orders the captured terminal snapshot before
+the next operation's initial notification; callbacks run outside the worker mutex.
+The manager consumes that immutable status/active-model snapshot rather than
+rereading mutable worker state. Seeing a completed operation must not itself
+cause an immediate follow-up action to fail as still busy.
+
+### Explicit process-output observation
+
+Each worker privately captures a rolling stdout/stderr tail by default, bounded
+to 256 KiB, 1,024 chunks, and 4 KiB per chunk. A separate bounded prefix remains
+for existing diagnostic parsers; it is not the viewer source. Strict command
+metadata capture remains distinct from both, so tail truncation cannot validate
+an incomplete catalog. Process-generation fencing rejects stale callbacks.
+
+`internal/windowing` owns one reusable **Process output** window, opened from
+runtime management or quick controls even during startup. It observes rather
+than owns the runtime. Each opening or runtime switch requires sensitive-output
+consent before enabling reads. Cursor-based, bounded request/response deltas are
+polled without overlap; no output is published in events, application logs,
+bridge tracing, crash reports, or files. Frontend accumulation is also bounded.
+A read-only xterm.js surface displays bounded UTF-8 text, newline, tab, carriage
+return, backspace, validated bounded SGR colors/styles, and erase-line progress
+controls. Other control families are filtered, including OSC, DCS/APC/PM/SOS,
+terminal queries, input modes, and alternate-screen operations. Decoder state is
+bounded and independent per stream, including fragmented or malformed controls.
+Filtering is not sensitive-content redaction. The viewer has no process-input,
+link, title, or escape-triggered clipboard handlers; terminal-generated responses
+never reach child stdin. Fit/search addons and search terms are viewer-local.
+Terminal scrollback and write queues are bounded; reset, eviction, and consent
+changes discard stale rendered state and pending writes. Follow controls
+scrolling; Clear drops the tail.
+Explicit Copy selection sends only selected rendered text to the native clipboard,
+without reading clipboard contents, automatic copy, Copy-all, export, or shell input.
+Copied text can outlive the viewer and be visible to other applications. Teardown
+disposes terminal, addon, and resize resources.
+
+Closing/switching clears visible renderer data and revokes retrieval. Disabling
+access does not erase private memory. The tail may survive process exit for
+inspection; Clear, the next start attempt, runtime removal, and shutdown release
+it. Viewer actions never start, stop, restart, or orphan a process. llama.cpp
+uses normal non-debug `--log-verbosity 3 --log-colors on` output in the existing
+private capture.
+The pinned logger defaults to no disk sink; file/prompt logging flags and
+inherited logging/config overrides remain excluded. Normal logs may contain
+sensitive content; whisper verbosity is not enabled.
+See the [logging contract](../../safety/logging/#managed-process-output) for the
+narrow renderer exception and unchanged application-log prohibitions.
+
+Other platforms expose unsupported managed-runtime status without changing
+native capture or manual endpoints.
 
 ## macOS platform boundary
 
-[ADR 0013](../../decisions/0013-native-macos-boundary/) extends the Windows-first
-architecture with native macOS adapters while preserving the existing feature owners.
+Windows and macOS use native adapters under shared feature owners.
 Shared audio selects CoreAudio or WASAPI. Quartz/Accessibility own Mac keyboard and
 safe delivery, Security.framework owns Keychain, and a nonactivating Cocoa panel
 owns the passive overlay. Wails retains the interactive shell, tray and single instance.
@@ -71,15 +288,14 @@ and SQLite after feature shutdown through Wails `PostShutdown`.
 
 ## Optional realtime dictation
 
-[ADR 0008](../../decisions/0008-qualified-realtime-dictation/) qualifies Nemotron
-3.5 on NeMo-Speech.cpp v0.1.0. [ADR 0011](../../decisions/0011-qwen-vllm-realtime/)
-adds Qwen3-ASR on vLLM 0.28.0, with model-only configuration, JSON/base64 audio,
-and distinct delta/done events. `internal/realtime` owns the versioned WebSocket
+Qualified realtime combinations include Nemotron 3.5 on NeMo-Speech.cpp v0.1.0
+and Qwen3-ASR on vLLM 0.28.0. The vLLM adapter uses model-only configuration,
+JSON/base64 audio, and distinct delta/done events. `internal/realtime` owns the versioned WebSocket
 adapters and bounded audio/text transport; `internal/dictation` owns capture,
 generation fencing, immutable profiles, finalization, cleanup, and safe delivery.
-[ADR 0009](../../decisions/0009-unified-voice-transcription/) gives Voice one active
-connection/model/profile and an optional qualified realtime mode. `VoiceTranscription`
-owns microphone settings; root STT fields own audio files. Dictation captures only
+Voice has one active connection/model/profile and an optional qualified realtime
+mode. `VoiceTranscription` owns microphone settings; root STT fields own audio
+files. Dictation captures only
 the Voice credential for either transport, while files capture only their own key.
 The completed Voice snapshot adapts onto the existing STT request fields without
 changing persistent file settings. Native captions carry a bounded transient tail
@@ -108,11 +324,11 @@ and overlay preview, not Go-owned jobs. No separate connection window exists.
 
 ## Durable settings storage
 
-[ADR 0014](../../decisions/0014-clean-settings-baseline/) governs the current
-SQLite store: modernc, embedded Goose migrations in `internal/storage/schema/`,
+The SQLite store uses modernc, embedded Goose migrations in `internal/storage/schema/`,
 and sqlc-generated queries. The distinct `freehand.db` identity starts from safe
-defaults and an empty catalog, without reading, importing, or deleting alpha
-settings or native credentials. Goose alone owns schema versions.
+defaults and an empty catalog. It never reads, imports, converts, or deletes
+`settings.db`, `settings.json`, or their legacy native credentials.
+Goose alone owns schema versions.
 `internal/storage` owns the database lifecycle and adapters; `internal/settings`
 retains coherent saves and immutable request profiles. See the
 [storage maintenance guide](../storage/) for schema changes and recovery.
@@ -135,7 +351,7 @@ commit together. Storage rejects invalid or unsupported activation purposes and
 activation on other actions. New selections still require model configuration;
 no inference or optional feature is enabled by creating a connection. Feature pages own active selection, model,
 language, presets, voice, and other runtime options. Fresh catalogs are empty.
-Selection restores remembered engine options while preserving task intent (ADR 0007); an
+Selection restores remembered engine options while preserving task intent; an
 unconfigured connection starts with defaults and disables optional features.
 The domain contract lives in
 `internal/savedconnection`; SQLite adapters remain in storage. The existing
@@ -424,6 +640,24 @@ Owners still fence late preparation, cancel their contexts, and join their
 workers; file worker registration occurs inside its closed-state admission
 fence. Recording rechecks closure after potentially blocking speech preemption.
 
+Dictation owns rejected-start feedback as well as active-run status. Rejection
+before microphone capture must reach the status subscribers used by both the
+workspace and passive overlay, even when a global shortcut has no renderer call
+awaiting its error. Failure presentation must not replace pending copy recovery,
+release retained result capabilities, or overwrite active work. `StartRejected`
+distinguishes admission feedback from the retained result's delivery outcome, so
+the overlay shows a failure without old run timing and the workspace keeps Copy
+available alongside recovery. Runtime readiness
+changes update the mounted recording transport rather than replacing it with a
+different layout; Go remains authoritative for start admission.
+
+The overlay owner dismisses failed and copy-required presentations after five
+seconds without changing dictation state or retained result capabilities. Its
+version-fenced timer cannot hide newer feedback, active work, or a preview.
+Settings updates and closing a preview do not revive an expired outcome; a fresh
+status publication starts a new presentation interval. Shutdown stops the timer
+and fences callbacks before releasing the native surface.
+
 ## Shared post-processing outcome policy
 
 Dictation and stored-file transcription remain separate state machines. Each
@@ -595,9 +829,9 @@ checkpoint, file, and speech request paths carry model-profile selection in thei
 existing immutable settings snapshot. Model-specific fields never become
 connection credentials or connection-owned settings.
 
-The initial schema persists feature-owned model-profile IDs with Generic
+The schema persists feature-owned model-profile IDs with Generic
 defaults. Cleanup's `preset` field holds its model-profile ID, not a second
-source of truth or an alpha compatibility adapter. The cleanup descriptor service
+source of truth. The cleanup descriptor service
 supplies prompt/control metadata; shared catalog metadata supplies behavior names,
 capabilities, and requirements.
 
@@ -852,14 +1086,12 @@ window-placement persistence, native dialog dispatch, or all OS cleanup. Preserv
 that distinction in acceptance reports; do not replace serialized cleanup with
 concurrent frees or an unconditional process kill.
 
-## Shelved conversation research
+<span id="shelved-conversation-research"></span>
 
-Conversation mode is not part of the active product direction. If future
-evidence revives it, it must reuse the same coherent-profile and
-feature-ownership principles but requires a separate turn state machine,
-streamed chat, ordered sentence segmentation, sequential TTS playback,
-cancellation, and a single selected LLM. It must not create parallel requests
-to different Ollama models.
+## Conversation scope
+
+Conversation mode is outside the product boundary. On-demand speech generation
+does not automatically send transcripts to chat or start a conversational turn.
 
 ## Optional post-STT normalization
 
@@ -869,20 +1101,21 @@ The client provides an optional transcript-processing capability:
 STT -> raw transcript -> selected processing profile -> clean transcript -> insertion
 ```
 
-Raw STT remains first-class and selectable. The processor is orchestrated by the client through a separately configured OpenAI-compatible `/chat/completions` endpoint; it is never hidden inside Speaches and is never bundled into the Windows executable. The default custom-instruction profile works with an ordinary compatible chat model. S1-mini by Superwhisper is a separate purpose-built profile whose styling, structure, context, and fixed request contract apply only when explicitly selected. All failures fall back to raw text. See [ADR 0001](../../decisions/0001-s1-mini-post-processing/).
+Raw STT remains first-class and selectable. The processor is orchestrated by the client through a separately configured OpenAI-compatible `/chat/completions` endpoint; it is never hidden inside Speaches and is never bundled into the Windows executable. The default custom-instruction profile works with an ordinary compatible chat model. S1-mini by Superwhisper is a separate purpose-built profile whose styling, structure, context, and fixed request contract apply only when explicitly selected. Processing failures preserve raw text; owning-operation cancellation still prevents delivery. See the [S1-mini model guide](../../models/s1-mini/).
 
 <span id="shelved-realtime-transcription-research"></span>
 
-## Historical Speaches realtime research
+<span id="historical-speaches-realtime-research"></span>
 
-[ADR 0002](../../decisions/0002-realtime-transcription/) preserves the original
-Speaches v0.8.2 investigation, including 24 kHz PCM16 audio and item-correlation
-requirements. It is not the implemented realtime adapter. The
-[qualified realtime boundary](#optional-realtime-dictation) uses distinct NeMo
-and vLLM protocols under the unified Voice selection. Their audio formats,
-configuration, and finalization rules must not be inferred from the historical
-Speaches contract. Only authoritative final text may proceed to cleanup and
-focus-safe insertion.
+## Realtime transport boundaries
+
+The [qualified realtime adapters](#optional-realtime-dictation) use distinct NeMo
+and vLLM protocols under unified Voice selection. Audio formats, session setup,
+and finalization belong to the selected adapter; OpenAI compatibility alone does
+not establish realtime support. Uploaded-file SSE streams response text after
+upload, not live microphone audio. Outgoing audio queues are bounded; transport
+failure discards provisional text rather than reconnecting and replaying audio.
+Only authoritative final text may proceed to cleanup and focus-safe insertion.
 
 ### Transcription option snapshots
 
@@ -940,8 +1173,7 @@ persisted settings collection. `compatibility.Contract.TranscriptionLanguage`
 owns provider mapping, consumed before both microphone and file multipart bodies
 are built. `config.Settings.VoiceTranscription.Language` and `config.Settings.Language`
 preserve independent Voice/file selections. Model profiles further restrict
-language support and defaults; model selection preserves task language under
-ADR 0007 rather than restoring a historical model-row language.
+language support and defaults; model selection preserves task language.
 
 The existing S1-mini profile descriptor declares English. Each workflow owner
 uses `postprocess.ValidateLanguage` after transcription and before cleanup, with
@@ -988,7 +1220,7 @@ counts, not URLs, model IDs, voice IDs, or credentials.
 The settings editor rejects late results from an obsolete connection revision
 or model selection. The voice picker preserves custom IDs and never treats
 inventory membership as request admission. Lists are ephemeral; selected voices
-use the existing modelsettings/sqlc save transaction, requiring no migration.
+use the modelsettings/sqlc save transaction.
 Kokoro's `stream: false` is a backend wire adaptation, not a model preference.
 
 ### Ordered runtime publication and speech lifecycle
@@ -1018,16 +1250,16 @@ current result is persisted in SQLite or browser storage.
 
 ### Task preference ownership
 
-[ADR 0007](../../decisions/0007-task-state-and-preference-ownership/) defines the
-selection contract shared by `modelsettings.Select` and the renderer model editor.
-Language, cleanup intent, and speaking speed survive model/connection switches;
-engine options and voice remain scoped to a model. The clean baseline stores
-only the current model-owned subset in remembered-model rows; historical task
-fields are absent, not retained for compatibility.
+`modelsettings.Select` and the renderer model editor share the same selection
+contract. Language, cleanup instructions, trained S1-mini styling/structure/context,
+and speaking speed survive model/connection switches; engine options and voice
+remain scoped to a model. Remembered-model rows store only model-owned options,
+not task settings. Generic cleanup instructions are not translated into trained
+S1-mini controls.
 
 ### Shared vocabulary
 
-Following [ADR 0010](../../decisions/0010-shared-vocabulary/), `config.VocabularySettings` owns task-level terminology and Voice/file opt-ins. `modelprofile.VocabularyMode` resolves qualified hint fields; the renderer preview and request projection share Go validation. `settings.captureProfile` projects only into immutable workflow snapshots. Completed NeMo speech contexts use request-only transcription fields, excluded from JSON/model preferences. The baseline vocabulary table and sqlc queries persist the shared settings in the same transaction. Remembered-model rows do not store the shared phrase list.
+`config.VocabularySettings` owns task-level terminology and Voice/file opt-ins. `modelprofile.VocabularyMode` resolves qualified hint fields; the renderer preview and request projection share Go validation. `settings.captureProfile` projects only into immutable workflow snapshots. Completed NeMo speech contexts use request-only transcription fields, excluded from JSON/model preferences. The vocabulary table and sqlc queries persist the shared settings in the same transaction. Remembered-model rows do not store the shared phrase list.
 
 ## File and speech workspace presentation
 
@@ -1113,9 +1345,8 @@ or active settings; ordinary composition/history/file playback uses saved settin
 
 ## Speech family contracts
 
-[ADR 0012](../../decisions/0012-speech-model-expansion/) adds Parakeet TDT v3 and
-Cohere profiles on existing completed adapters, Voxtral on the existing vLLM
-realtime transport, and vLLM-Omni speech with Qwen3-TTS CustomVoice options.
+Parakeet TDT v3 and Cohere profiles use completed adapters, Voxtral uses the vLLM
+realtime transport, and vLLM-Omni speech supports Qwen3-TTS CustomVoice options.
 `modelprofile` owns languages, preset voices, and option admission; Svelte uses
 that resolved metadata. Only Qwen realtime output passes through the Qwen header
 parser. Voxtral finals remain ordinary text under the same stop/final authority.

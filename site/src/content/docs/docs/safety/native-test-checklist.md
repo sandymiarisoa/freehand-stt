@@ -40,6 +40,112 @@ connection dialogs, native captions, and the passive overlay. Verify the local
 heading font loads without a network request, and that idle, recording,
 processing, copy recovery, and error states retain usable controls.
 
+## Managed local runtime
+
+Use an isolated test user or explicit test data root for destructive cases.
+Do not delete personal runtime installations or pull every catalog model.
+
+Check host-aware recommendations, warm-up, startup progress, and the
+process-output viewer on Windows and macOS using the cases below. Deterministic
+tests and browser fixtures do not establish native inference or permission acceptance.
+On macOS, test NeMo and llama.cpp on each claimed architecture; use a packaged
+app for permissions. Verify Metal on Apple Silicon, CPU on Intel, the llama.cpp
+13.3 minimum, and unavailable managed whisper.cpp with manual connections intact.
+Exercise the existing viewer consent, selection-copy, and teardown cases on both
+platforms.
+
+- Start with no manual connections. Open Local runtime, install the official
+  binary, and verify that browsing its speech catalog does not download weights
+  or load a model. Download only the explicitly selected Nemotron 3.5 model.
+- Select the built-in Connection referencing the instance for Voice, and enable
+  realtime in Voice settings. Wait for Running, then use a recording
+  shortcut from a disposable editor. Check provisional captions, authoritative
+  finals, cancellation, Unicode, and changed-focus copy recovery. Repeat with
+  realtime off and with a selected audio file using its independently selected
+  Connection. Cleanup remains independently
+  configured; local recognition must not be described as local cleanup.
+- Confirm the listener is on `127.0.0.1` only and has no LAN-facing socket. Verify
+  the actual selected backend on supported GPU and CPU-only hardware; successful
+  CPU execution is not GPU acceptance.
+- Cancel and retry an installation/download, interrupt network access, and test
+  insufficient disk space in the isolated root. Progress must remain responsive
+  and must not invent percentages for indeterminate work. Reopening Settings
+  must show the backend's current operation, not start a duplicate job.
+- Stop/start repeatedly. Quit during model pull, startup, and active streaming;
+  confirm the server and model-manager descendants exit. Force-close the test
+  app and verify Job Object cleanup on Windows or lifetime-pipe/process-group
+  cleanup on macOS. A separate manually started NeMo server
+  must remain untouched.
+- Preserve a manual connection with a disposable key before selecting a managed
+  Connection. Confirm local requests carry neither that key nor its custom headers.
+  On local failure, confirm no request reaches the manual server. Select the
+  manual Connection explicitly and check it still works. Stop a files-only
+  runtime and confirm independently configured manual Voice remains usable.
+- For llama.cpp and whisper.cpp, stop the runtime and switch CPU to NVIDIA CUDA
+  without removing models or changing Connections. Cancel an isolated replacement
+  and confirm the old backend still starts; then complete the switch and restart
+  Freehand to confirm its selection persists. Exercise only an explicitly chosen
+  model on the GPU, including concurrent NeMo and S1-mini if that is the selected
+  workflow. Record actual GPU use and driver/GPU compatibility separately from
+  installation, CLI help, and browser results. Switch back to CPU and verify that
+  model data and task selections remain intact.
+- On supported NVIDIA and CPU-only Windows hosts, open a new llama.cpp or
+  whisper.cpp installation and inspect the recommendation before accepting it.
+  Unknown/unsupported device-0 or driver metadata must recommend CPU; compatible
+  device 0 must recommend the pinned CUDA 12.4 recipe. Confirm explicit CPU
+  selection works and that simply opening the choice downloads/starts nothing.
+  Existing installations must remain unchanged on reopen/restart or changes in
+  available GPU memory; do not infer compatibility from free VRAM.
+- Start only the selected downloaded model on CPU and GPU. Observe verification,
+  launch, readiness, and loading/warm-up phases with phase-specific elapsed time,
+  not a fabricated percentage. On GPU, verify llama.cpp/NeMo built-in warm-up and
+  CUDA whisper.cpp's one-second synthetic-silence startup request before Running.
+  Confirm there is no microphone capture, history/cleanup result, catalog-model
+  invocation, or remote request. Repeat with saved start-at-launch intent.
+  Measure startup and first/subsequent selected-model requests separately; do not
+  infer a latency improvement from a health response or a CUDA binary label.
+- Cancel during verification and warm-up; exercise a slow or failed startup.
+  Launch/readiness/warm-up share 120 seconds, followed by up to four seconds of
+  owned-process drain; prelaunch hashing is cancellable. Confirm no Running
+  endpoint is published on failure and no replacement is admitted while an owned
+  child remains alive. Quit during warm-up with multiple providers active and
+  check process descendants against the separate application shutdown bound.
+- Open **View output** from Local runtime and quick controls while startup is
+  active. Repeated opens reuse one **Process output** window. Before **Show
+  output** consent there must be no raw output retrieval or displayed tail.
+  Close via native chrome, Alt+F4, Escape, and the footer; reopen and switch
+  runtime, confirming new consent and no stale visible text or late-read leak.
+  Use non-sensitive data only, including synthetic HTML/terminal-control text:
+  only SGR colors/styles, carriage return, backspace, and CSI K line erasure may
+  render as terminal controls. OSC clipboard,
+  links, titles, terminal queries, and mode changes must have no side effects.
+  Test colors and carriage-return progress split across output chunks.
+- With enough synthetic output to exceed the bounded tail, confirm older text
+  is discarded and renderer memory does not grow without bound. Follow and
+  search must work; collection continues when Follow is off. **Clear** drops
+  the captured tail and terminal state without changing the process.
+  Closing revokes retrieval but preserves private capture until Clear, the next
+  start attempt, removal, or Quit. Check retained output after process exit,
+  generation isolation on restart, and no export, file, event, application
+  log, or crash-report output path. Explicit Copy selection must copy only the
+  selected displayed text, never automatically or before consent. After an ordinary subsequent llama.cpp start,
+  verify normal info/warning/error output reaches the consent-gated viewer on
+  CPU and CUDA, with `--log-verbosity 3 --log-colors on`, not `--log-disable` or
+  trace/debug logging. Check the runtime working directory for no new log or
+  prompt files; inherited logging/config overrides must remain excluded.
+  Use only explicitly selected models and non-sensitive requests. Normal logs
+  may still contain sensitive text; an empty tail is not proof of startup failure.
+  The opt-in pinned CPU ZIP regression checks a real parser warning through the
+  owned launcher plus no new temporary-installation files, without loading a
+  model. It does not replace native startup/request, CUDA, or viewer acceptance.
+- Check viewer focus, keyboard navigation, light/dark appearance, mixed DPI,
+  scrolling, and shutdown with real Wails windows. Opening/closing/clearing or
+  pausing the viewer must never start, stop, restart, or orphan the runtime.
+- Confirm destructive actions explain their scope and protect active work.
+  Remove an inactive downloaded model, then remove the runtime and its owned
+  model data. Other installations, connections, credentials, and source files
+  must remain. Restart after removal and confirm nothing launches or downloads.
+
 ## Windows tray panel
 
 - Left-click repeatedly: reuse one 360 × 500 panel with no taskbar entry. Check

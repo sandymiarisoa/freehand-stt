@@ -4,6 +4,10 @@
 
 package dbgen
 
+import (
+	"database/sql"
+)
+
 type CleanupSetting struct {
 	ID                                 int64
 	GenerationOptionsLimitOutputTokens int64
@@ -21,6 +25,14 @@ type CleanupSetting struct {
 
 type CredentialGc struct {
 	Account string
+}
+
+type ManagedRuntimeInstance struct {
+	ID        string
+	Name      string
+	Provider  string
+	Model     string
+	AutoStart int64
 }
 
 type PreferencesSetting struct {
@@ -88,6 +100,7 @@ type SavedConnection struct {
 	AuthenticationMode   string
 	HealthPath           string
 	CredentialAccount    string
+	ManagedInstanceID    sql.NullString
 }
 
 type SavedConnectionHeader struct {

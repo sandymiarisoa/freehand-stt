@@ -21,6 +21,7 @@ import (
 	"github.com/tnware/freehand-stt/internal/history"
 	"github.com/tnware/freehand-stt/internal/inference"
 	inputservice "github.com/tnware/freehand-stt/internal/input"
+	"github.com/tnware/freehand-stt/internal/managedruntime"
 	overlayservice "github.com/tnware/freehand-stt/internal/overlay"
 	"github.com/tnware/freehand-stt/internal/platform"
 	"github.com/tnware/freehand-stt/internal/postprocess"
@@ -74,6 +75,7 @@ type App struct {
 	opts            Options
 	settings        config.Settings
 	settingsService *settingsservice.Service
+	managedRuntime  *managedruntime.Manager
 	buildInfo       *buildinfo.Service
 	connection      *connection.Service
 	inputService    *inputservice.Service
@@ -97,6 +99,7 @@ type App struct {
 	settingsShell   *shellNavigation
 	aboutWindow     *windowController
 	detailsWindow   *windowController
+	outputWindow    *windowController
 	windowState     *windowstate.Store
 	mainPlacement   *windowstate.Placement
 	levels          *levelPump
@@ -147,6 +150,7 @@ func New(opts Options) (*App, error) {
 		settingsShell:  &shellNavigation{},
 		aboutWindow:    &windowController{},
 		detailsWindow:  &windowController{},
+		outputWindow:   &windowController{},
 		windowState:    windowState,
 		mainPlacement:  mainPlacement,
 		logger:         logger,
@@ -187,6 +191,7 @@ func New(opts Options) (*App, error) {
 		},
 	})
 	a.updates = updates.NewService(opts.Release.Version, settings.CheckForUpdates, opts.Development, a.publishUpdateStatus, rootLogger)
+	a.managedRuntime = managedruntime.NewManager(a.managedRuntimeOptions(storage.Directory(store), admission))
 	transcripts := history.NewStore(settings.HistoryEnabled, nativeInput)
 	a.settingsService = settingsservice.NewService(
 		store, settings, keys, processingKeys, platform.Startup{}, holdAvailability,
@@ -196,6 +201,10 @@ func New(opts Options) (*App, error) {
 		a.publishSettings,
 		rootLogger,
 		settingsservice.WithConfigurationLoad(store, settingsFailure),
+		settingsservice.WithManagedRuntimes(a.managedRuntime.ResolveFor, nil),
+		settingsservice.WithManagedInventory(func(instances []managedruntime.Instance) (*managedruntime.InventoryReservation, error) {
+			return managedruntime.ReserveInstances(a.managedRuntime, instances)
+		}),
 		settingsservice.WithHoldRetry(func() error {
 			if err := admission.CheckShortcutCapture(); err != nil {
 				return err
@@ -237,7 +246,7 @@ func New(opts Options) (*App, error) {
 			}
 		},
 	})
-	a.connection = connection.NewService(keys, processingKeys, ttsKeys, client, rootLogger, store)
+	a.connection = connection.NewService(keys, processingKeys, ttsKeys, client, rootLogger, settingsservice.ConnectionResolver(a.settingsService))
 	a.inputService = inputservice.NewService(a.audio, a.capture, a, admission, settingsSource, a.publishShortcutCapture, rootLogger)
 	a.buildInfo = buildinfo.NewService(
 		opts.Release.ProductName,
@@ -253,6 +262,7 @@ func New(opts Options) (*App, error) {
 		a.aboutWindow.open,
 	)
 	windowing.ConfigureSettings(a.windowing, windowing.SettingsNavigation{Ready: a.settingsReady, Visible: a.settingsWindow.open, Finish: a.finishSettings})
+	a.configureProcessOutput()
 	windowing.ConfigureTrayPopover(a.windowing, windowing.TrayPopoverNavigation{OpenMain: a.showMain, Hide: a.hideTrayPopover, Visible: a.trayPopover.open})
 	windowing.ConfigureConnections(a.windowing, windowing.ConnectionNavigation{
 		Exists: func(id string) bool {
@@ -268,6 +278,7 @@ func New(opts Options) (*App, error) {
 		application.NewService(a.buildInfo),
 		application.NewService(a.history),
 		application.NewService(a.settingsService),
+		application.NewService(a.managedRuntime),
 		application.NewService(a.connection),
 		application.NewService(a.dictation),
 		application.NewService(a.inputService),
@@ -448,6 +459,7 @@ func (a *App) onStarted(*application.ApplicationEvent) {
 	a.newSettingsWindow()
 	a.newAboutWindow()
 	a.newHistoryDetailsWindow()
+	a.newProcessOutputWindow()
 	a.tray.ApplyDictation(dictation.Snapshot(a.dictation))
 	a.tray.ApplyFile(a.files.CurrentFileTranscription())
 	overlayservice.Start(a.overlay)

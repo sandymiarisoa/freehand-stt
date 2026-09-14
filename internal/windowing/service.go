@@ -11,6 +11,7 @@ import (
 )
 
 var settingsSections = map[string]struct{}{
+	"local-runtime":       {},
 	"vocabulary":          {},
 	"general":             {},
 	"shortcuts":           {},
@@ -37,6 +38,8 @@ type Service struct {
 	openAbout          func()
 	hideAbout          func()
 	aboutVisible       func() bool
+	processOutput      ProcessOutputNavigation
+	outputRequest      ProcessOutputRequest
 }
 
 func NewService(

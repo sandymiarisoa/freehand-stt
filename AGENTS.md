@@ -4,9 +4,9 @@
 
 Build Freehand, a lightweight native desktop client for self-hosted and OpenAI-compatible speech infrastructure. The application has native Windows and macOS adapters: it records speech, sends it to infrastructure the user chose, and delivers the result only while the captured application/window remains valid and focused.
 
-The product is intentionally not a meeting recorder, notes workspace, bundled model runner, or account platform.
+The product is intentionally not a meeting recorder, notes workspace, general-purpose model runner, or account platform. Models and runtime binaries are downloaded only through explicit setup, not bundled in the executable.
 
-Freehand owns the desktop boundary: capture, local speech policy, native shortcuts and overlays, endpoint configuration, observable request state, recoverable processing, and safe delivery. Inference servers own models, accelerators, batching, and model lifecycle. Treat localhost, a private LAN server, a user-managed VPS, and a hosted compatible provider as equal deployment choices; never assume inference runs on the client machine.
+Freehand owns the desktop boundary: capture, local speech policy, native shortcuts and overlays, endpoint configuration, observable request state, recoverable processing, and safe delivery. Inference servers own execution, accelerators, and batching. Optional Windows and macOS managed runtimes have a bounded installation, model, and process lifecycle. Treat localhost, a private LAN server, a user-managed VPS, and a hosted compatible provider as equal deployment choices; never assume inference runs on the client machine.
 
 ## Current delivery boundary
 
@@ -20,13 +20,13 @@ native file selection -> /v1/audio/transcriptions -> optional streamed response
         -> optional /v1/chat/completions cleanup -> explicit copy -> optional history
 ```
 
-Optional S1-mini by Superwhisper processing is implemented as a separate stage after raw STT. It is never part of Speaches and is never bundled into the executable. Follow `site/src/content/docs/docs/decisions/0001-s1-mini-post-processing.md` exactly; preserve raw mode, fall back durably to raw text, and do not invent untrained control values.
+Optional S1-mini by Superwhisper processing is implemented as a separate stage after raw STT. It is never part of Speaches and is never bundled into the executable. Preserve raw mode, fall back durably to raw text, and do not invent untrained control values.
 
-Optional realtime microphone dictation is qualified for NeMo-Speech.cpp v0.1.0 with Nemotron 3.5 streaming, and vLLM v0.28.0 with the explicit Qwen3-ASR or Voxtral Mini Realtime profiles. Follow `site/src/content/docs/docs/decisions/0008-qualified-realtime-dictation.md` and ADR 0011's distinct vLLM protocol; retain ADR 0002's applicable transport and safety research. Follow ADR 0009 for unified Voice selection: completed and realtime microphone transcription use one connection/model/profile with a capability-gated mode switch. Audio-file transcription remains independently configurable. Partial text is presentation-only; authoritative finals use the existing cleanup and focus-safe delivery path. The pause-aware completed flow remains the default. Conversation mode remains shelved, and inference runtimes remain user-managed.
+Optional realtime microphone dictation is qualified for NeMo-Speech.cpp v0.1.0 with Nemotron 3.5 streaming, and vLLM v0.28.0 with the explicit Qwen3-ASR or Voxtral Mini Realtime profiles. Keep their distinct wire protocols separate. Completed and realtime microphone transcription use one Voice connection/model/profile with a capability-gated mode switch. Audio-file transcription remains independently configurable in manual mode. Managed mode supplies its selected local model to Voice and files without overwriting their saved manual selections. Partial text is presentation-only; authoritative finals use the existing cleanup and focus-safe delivery path. The pause-aware completed flow remains the manual default; the recommended managed Nemotron setup enables realtime explicitly. Conversation mode remains out of scope.
 
 ## Non-negotiable safety rules
 
-1. Model discovery and endpoint health checks are metadata-only. Use `/health` or `/v1/models`; qualified speech profiles may also read `/v1/audio/voices` for voice discovery.
+1. Model discovery and endpoint health checks are metadata-only. Use `/health` or `/v1/models`; qualified speech profiles may also read `/v1/audio/voices` for voice discovery. The managed adapter may read NeMo's CLI model index and poll `/ready`; catalog browsing never downloads or loads models.
 2. Never invoke, preload, iterate through, or smoke-test model inventories. Live inference checks use only an explicitly selected endpoint/model and must respect its resource limits.
 3. Never paste a completed transcription into a different focused window. Capture the platform target at recording start: HWND/thread/process identity on Windows; NSWorkspace frontmost PID/process-start plus retained AX focused window on macOS. Revalidate before delivery and each chunk. On macOS, field changes within the same window deliver to the current field; editor metadata or element identity is not required. Preserve permission, Secure Input, modifier and cancellation guards, no activation, and explicit-only copy recovery. Secure Input does not guarantee detection of every custom secure field.
 4. Store credentials in Windows Credential Manager or macOS Keychain through native adapters. User-entered API keys may exist only as a bounded, transient renderer draft; never persist them in JSON, TOML, SQLite, logs, argv, events, or crash reports, and never return a stored credential to the renderer.
@@ -35,10 +35,15 @@ Optional realtime microphone dictation is qualified for NeMo-Speech.cpp v0.1.0 w
 
 ## Architecture
 
+- Keep the output viewer read-only, with limited color/progress controls and explicit Copy selection. Require sensitive-output consent and bounded memory-only reads; never forward terminal input or enable output-triggered clipboard, link, title, or file actions. Viewer controls do not own the runtime process.
+- Use host-aware pinned binary recommendations and platform-specific recipes. Recommendations never change existing installations automatically. Selected-model GPU warm-up belongs to startup; health/catalog operations stay metadata-only. macOS recipes support NeMo on Apple Silicon (Metal) and Intel (CPU), and llama.cpp on macOS 13.3+ (Apple Silicon CPU/Metal, Intel CPU). Managed whisper.cpp remains Windows-only until upstream publishes a macOS server binary.
+- List implemented providers directly: one configured installation and one running process tree per provider, with distinct providers allowed concurrently. Preserve existing IDs and expose explicit duplicate recovery rather than merging or deleting user installations. Managed llama.cpp qualifies S1-mini cleanup; managed whisper.cpp qualifies completed transcription. Windows uses pinned x64 CPU/CUDA binaries and revision/checksum-pinned catalog downloads. NeMo retains its hardware checks and model-manager acquisition.
+- Runtime instances own installation, model loading, and process lifetime; saved Connections own independent task selection. Keep runtime inventory management separate but linked from Connections and quick settings. Realtime belongs to Voice; S1-mini belongs to cleanup model behavior, not a separate runtime adapter.
 - Go owns runtime state, hotkeys, audio, network requests, credential access, focus-safe insertion, startup registration, native platform adapters, and service shutdown.
 - Wails v3.0.0-beta.16 owns the interactive settings shell, renderer bindings, tray, and single-instance application lifecycle. Svelte 5 owns settings/status presentation. The passive focus-sensitive overlay is native Win32 on Windows and a nonactivating, click-through Cocoa NSPanel on macOS.
 - Keep domain code under `internal/<domain>` and keep root `main.go` as composition/lifecycle wiring.
-- Keep shared workflow code platform-neutral. Windows and macOS provide native adapters for capture, hotkeys, credentials, windows, overlays, insertion, packaging, and updates. Share bounded audio/session logic with WASAPI/CoreAudio backend selection; preserve platform-specific safety contracts rather than weakening them to a lowest-common-denominator implementation. Follow ADR 0013 for macOS ownership and permission boundaries.
+- `internal/managedruntime` owns optional Windows/macOS runtime installation, catalog, and process supervision. Pin official binaries and checksums; never build from source, alter PATH, or expose arbitrary flags. Keep files and model cache under Freehand app data, bind to `127.0.0.1`, and own subprocess trees through Windows Job Objects or the macOS lifetime-pipe supervisor and process groups. macOS listener admission uses libproc to verify the actual server PID; archive dylib aliases become verified regular copies, never filesystem links. Settings owns durable preferences and coherent endpoint projection. Never leak BYO keys/headers to the managed endpoint or silently fall back to a remote server after failure. Capture child output only in bounded private memory, not renderer events or persistent logs.
+- Keep shared workflow code platform-neutral. Windows and macOS provide native adapters for capture, hotkeys, credentials, windows, overlays, insertion, packaging, and updates. Share bounded audio/session logic with WASAPI/CoreAudio backend selection; preserve platform-specific safety contracts rather than weakening them to a lowest-common-denominator implementation.
 - `internal/dictation` owns the live recording state machine. `internal/history` owns transcript retention, and `internal/settings` owns coherent settings/credential snapshots. Platform callbacks and HTTP completions report into their owning feature; they do not mutate UI or insertion state independently.
 - OpenAI compatibility is represented as separate STT, post-processing/chat, realtime, and on-demand TTS capabilities. Keep capability contracts distinct. Voice selects one completed/realtime transcription combination; audio files, cleanup, and speech retain independent selections and coherent credential snapshots. TTS remains explicit and dormant when disabled. History/file playback selects transcript text through backend-owned capabilities; the first-class TTS composer accepts only bounded user-authored text. Synthesized audio never crosses Wails.
 
@@ -46,13 +51,13 @@ Optional realtime microphone dictation is qualified for NeMo-Speech.cpp v0.1.0 w
 
 - `internal/compatibility` owns server APIs; `internal/modelprofile` owns explicit
   model behavior and intersects its capabilities with the selected backend.
-  Generic is a baseline, not proof of support by every deployed model. Follow ADR 0012 for Parakeet, Cohere, Voxtral, and Qwen3-TTS contracts; Qwen speech language and style are remembered model options and preview snapshots.
+  Generic is a baseline, not proof of support by every deployed model. Qwen speech language and style are remembered model options and preview snapshots.
 - `internal/modelsettings` owns the non-secret per-connection/use/model option
-  subset. Follow ADR 0007 for task-versus-model ownership: selection preserves language,
+  subset. Task selection preserves language,
   cleanup intent, and speaking speed; remembered-model rows contain only their
   current model-owned subset, not historical task fields. Persist it with active settings through the existing settings transaction
   and sqlc queries; never store transport or credentials in model preferences.
-- Shared vocabulary follows ADR 0010: task-owned phrases and Voice/file opt-ins, qualified adapter projection into immutable requests, and no restoration of historical per-model phrase fields. Cleanup instructions and prose context remain separate.
+- Shared vocabulary uses task-owned phrases and Voice/file opt-ins, with qualified adapter projection into immutable requests. Cleanup instructions and prose context remain separate.
 - Model profiles belong to feature settings, independently of reusable server
   connections. Do not infer them from model IDs, URLs, or model inventories.
 - Add specialized profiles only with a justified, qualified per-role contract,
@@ -76,14 +81,14 @@ Optional realtime microphone dictation is qualified for NeMo-Speech.cpp v0.1.0 w
 
 ## SQLite persistence contract
 
-The current SQLite contract is [ADR 0014](site/src/content/docs/docs/decisions/0014-clean-settings-baseline.md), superseding ADR 0006's alpha lineage/import policy. Use `freehand.db` with its distinct application identity. Start from defaults and an empty connection catalog; never read, import, convert, or delete alpha `settings.db`, `settings.json`, or legacy native credentials.
+Use `freehand.db` with its distinct application identity. Start from defaults and an empty connection catalog; never read, import, convert, or delete alpha `settings.db`, `settings.json`, or legacy native credentials.
 
 - Use `modernc.org/sqlite` with `database/sql`, embedded goose SQL migrations, and sqlc-generated application queries. Do not introduce an ORM, a second migration runner, or handwritten application query/scanning paths. Keep infrastructure SQL confined to the documented storage boundary.
 - Pin driver and tool versions. Goose's version table is the sole migration authority. Goose and sqlc both read `internal/storage/schema/`, beginning with `00001_initial.sql`. Published migrations in this lineage are immutable and startup upgrades forward only; the alpha reset is not a general immutability bypass.
 - Keep generated rows and database handles inside storage. Existing domain owners retain validation, save transaction coordination, immutable request snapshots, and native/credential recovery.
 - Commit generated queries. The implementation must ship reproducible generation and CI checks for stale/untracked generated output, released migration immutability, and query/import boundaries. Test real SQLite migrations, transactions, recovery, and platform-specific behavior.
 - Credentials remain in Windows Credential Manager or macOS Keychain; SQLite may store opaque references only. Adding SQLite does not authorize persistent transcript history or audio retention.
-- Change this contract through a superseding ADR and corresponding instruction/check updates, rather than a feature-local bypass.
+
 
 ## Windows interaction requirements
 
@@ -117,12 +122,12 @@ The current SQLite contract is [ADR 0014](site/src/content/docs/docs/decisions/0
 - One GitHub issue should describe one independently reviewable outcome. Record the observed problem, user impact, relevant invariants, acceptance criteria, validation required, and explicit non-goals.
 - Use `priority::P1` only for correctness, data/credential exposure, unsafe insertion, shutdown reliability, or release blockers. Use P2 for meaningful reliability, security hardening, and maintainability; use P3 for deferred capability or polish.
 - Keep issue status honest: `ready` means unblocked and sufficiently specified, `validation` means implemented but awaiting native or release evidence, `blocked` must name the actual dependency, and `deferred` means intentionally postponed rather than blocked.
-- Keep documentation audiences separate. `README.md` is the concise product and repository front door; task-oriented install, setup, workflow, privacy, and troubleshooting material belongs in the public user guide; architecture, tests, CI, releases, logging contracts, ADRs, and native acceptance belong in contributor or maintainer sections. Do not turn the README or a user guide into a maintainer notebook.
+- Keep documentation audiences separate. `README.md` is the concise product and repository front door; task-oriented install, setup, workflow, privacy, and troubleshooting material belongs in the public user guide; architecture, tests, CI, releases, logging contracts, and native acceptance belong in contributor or maintainer sections. Do not turn the README or a user guide into a maintainer notebook.
 - Each feature or fix pull request updates the affected durable documentation in the same branch: the user guide for user-visible behavior, `site/src/content/docs/docs/development/architecture.md` for ownership/contracts, and `site/src/content/docs/docs/development/testing.md` or the native checklist for acceptance. Track delivery state in the relevant issue or pull request rather than maintaining a second checklist in the documentation site. Update `README.md` only when the product summary, requirements, principal capabilities, safety promises, or public project status changes.
-- ADRs preserve decisions and history. Do not silently rewrite an accepted decision; add a superseding note or a new ADR when ownership or protocol direction changes. Correct plainly stale toolchain facts and mark historical caveats as historical.
+
 - Before opening a pull request, reconcile its linked issue and documentation against what actually shipped. Do not leave completed work checked as future work or describe implemented features as post-MVP.
 - Keep release identity, human-readable version, Windows resource version, installer version, and About metadata derived from one documented source rather than copied independently.
-- Judge proposed capabilities against the accepted remote-first direction in `site/src/content/docs/docs/decisions/0005-remote-first-product-direction.md`. Prefer deeper interoperability, setup clarity, diagnostics, reliability, and native delivery over bundled inference, provider-specific feature accumulation, or workspace expansion.
+- Prefer interoperability, setup clarity, diagnostics, reliability, and native delivery over general-purpose inference management, provider-specific flag accumulation, or workspace expansion.
 
 ## Validation
 

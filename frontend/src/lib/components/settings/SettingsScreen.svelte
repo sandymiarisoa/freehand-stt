@@ -1,5 +1,6 @@
 <script lang="ts">
   import { SETTINGS_NAVIGATION } from "$lib/navigation";
+  import LocalRuntimeSection from "./sections/LocalRuntimeSection.svelte";
   import VocabularySection from "./sections/VocabularySection.svelte";
   import { setContext, tick, untrack } from "svelte";
   import {
@@ -27,13 +28,13 @@
   import { sectionByID } from "$lib/navigation";
   import type { SettingsSectionID } from "$lib/navigation";
   import type { Session } from "$lib/stores/session.svelte";
-  import { State } from "$lib/state";
+  import { State, FileTranscriptionPhase } from "$lib/state";
   import type { Message } from "$lib/utils/messages";
   import { shortcutCapture } from "$lib/stores/shortcutCapture.svelte";
   import { cn } from "$lib/utils";
 
   let {
-    session,
+    session = $bindable(),
     visible = true,
     active = $bindable(),
     navigationRef = $bindable(null),
@@ -70,6 +71,16 @@
 
   const section = $derived(sectionByID(active));
   const dirty = $derived(session.editor.dirty);
+  const speechWorkBusy = $derived(
+    ![State.Idle, State.Failed].includes(session.dictation.status.state) ||
+      session.files.starting ||
+      [
+        FileTranscriptionPhase.FileTranscriptionUploading,
+        FileTranscriptionPhase.FileTranscriptionProcessing,
+        FileTranscriptionPhase.FileTranscriptionStreaming,
+        FileTranscriptionPhase.FileTranscriptionCancelling,
+      ].includes(session.files.status.phase),
+  );
   const workflowPurpose = $derived(
     active === "voice-transcription"
       ? Purpose.Voice
@@ -367,11 +378,21 @@
                 })}
             />
           {/if}
-          {#if active === "connections"}
+          {#if active === "local-runtime"}
+            <LocalRuntimeSection
+              runtime={session.runtime}
+              disabled={session.editor.saving}
+              workBusy={speechWorkBusy}
+              onConnections={browseConnections}
+              onAction={withSavedSettings}
+            />
+          {:else if active === "connections"}
             <Button onclick={browseConnections}>Open connections</Button>
           {:else if active === "voice-transcription"}
             {#if session.editor.draft.savedConnections.selected?.voice}
               <VoiceTranscriptionSettings
+                runtime={session.runtime}
+                onManageRuntime={() => selectSection("local-runtime")}
                 editor={session.editor}
                 settings={session.editor.draft}
                 draft
@@ -417,6 +438,8 @@
           {:else if active === "server"}
             {#if session.editor.draft.savedConnections.selected?.stt}
               <ServerSection
+                runtime={session.runtime}
+                onManageRuntime={() => selectSection("local-runtime")}
                 onEnter={() =>
                   void session.editor.ensureConnectionMetadata(
                     Purpose.Transcription,
@@ -444,6 +467,8 @@
           {:else if active === "processing"}
             {#if session.editor.draft.savedConnections.selected?.cleanup}
               <ProcessingSection
+                runtime={session.runtime}
+                onManageRuntime={() => selectSection("local-runtime")}
                 onEnter={() =>
                   void session.editor.ensureConnectionMetadata(
                     Purpose.Cleanup,
@@ -471,6 +496,8 @@
           {:else if active === "speech"}
             {#if session.editor.draft.savedConnections.selected?.speech}
               <SpeechSection
+                runtime={session.runtime}
+                onManageRuntime={() => selectSection("local-runtime")}
                 onEnter={() =>
                   void session.editor.ensureConnectionMetadata(
                     Purpose.Speech,
@@ -598,7 +625,7 @@
     onInteractOutside={preventDismissWhileSaving}
   >
     <Dialog.Header>
-      <Dialog.Title>Save settings before changing connections?</Dialog.Title>
+      <Dialog.Title>Save settings before continuing?</Dialog.Title>
       <Dialog.Description
         >Your model and task edits have not been applied. Save them for the
         current connection, or discard them before continuing.</Dialog.Description

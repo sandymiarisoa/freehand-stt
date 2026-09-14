@@ -13,6 +13,8 @@
   import type { SettingsEditor } from "$lib/stores/editor.svelte";
   import ConnectionSelect from "$lib/components/settings/ConnectionSelect.svelte";
   import { Switch } from "$lib/components/ui/switch";
+  import type { ManagedRuntimeState } from "$lib/stores/managed-runtime.svelte";
+  import ManagedRuntimeControls from "./ManagedRuntimeControls.svelte";
 
   let {
     editor,
@@ -21,6 +23,8 @@
     draft = false,
     setup = false,
     onAddConnection,
+    runtime,
+    onManageRuntime = () => {},
   }: {
     editor: SettingsEditor;
     settings: Settings;
@@ -28,8 +32,16 @@
     draft?: boolean;
     setup?: boolean;
     onAddConnection: (purpose: Purpose) => void;
+    runtime?: ManagedRuntimeState;
+    onManageRuntime?: () => void;
   } = $props();
   const cfg = $derived(settings.voiceTranscription);
+  const instanceID = $derived(cfg.managedInstanceID ?? "");
+  const managed = $derived(!!instanceID);
+  const row = $derived(runtime?.statusFor(instanceID));
+  const localModel = $derived(
+    row?.status.models?.find((model) => model.id === row.instance.model),
+  );
   let profileNotice = $state("");
   const backend = $derived(
     settings.compatibilityProfiles.transcription?.find(
@@ -40,9 +52,14 @@
     backend?.capabilities.serverLoadedModel && !backend?.capabilities.realtime,
   );
   const profile = $derived(
-    settings.modelProfiles.voiceTranscription?.find(
-      (p) => p.id === cfg.modelProfile,
-    ),
+    managed
+      ? (localModel?.behavior ??
+          settings.modelProfiles.voiceTranscription?.find(
+            (p) => p.id === cfg.modelProfile,
+          ))
+      : settings.modelProfiles.voiceTranscription?.find(
+          (p) => p.id === cfg.modelProfile,
+        ),
   );
   function chooseProfile(value: string) {
     const selected = settings.modelProfiles.voiceTranscription?.find(
@@ -74,6 +91,7 @@
   );
   const busy = $derived(
     disabled ||
+      (managed && runtime?.isBusy(instanceID)) ||
       editor.saving ||
       editor.isQuickSettingsPending("voice-transcription"),
   );
@@ -103,6 +121,10 @@
   function test() {
     void editor.testAppliedConnection(Purpose.Voice);
   }
+  function setRealtime(realtime: boolean) {
+    if (busy) return;
+    update({ realtime });
+  }
 </script>
 
 <div class={draft ? "flex flex-col gap-5" : "space-y-4"}>
@@ -116,6 +138,7 @@
         <ConnectionSelect
           id="voice-connection"
           catalog={settings.savedConnections}
+          runtimeInstances={runtime?.instances}
           purpose={Purpose.Voice}
           disabled={busy || testing}
           onChange={(change) => editor.changeConnection(change)}
@@ -123,13 +146,28 @@
         />
       </div>
     </div>
+    {#if managed && runtime}
+      <ManagedRuntimeControls
+        {instanceID}
+        {runtime}
+        disabled={disabled ||
+          editor.saving ||
+          editor.quickSettingsPending.length > 0}
+        onManage={onManageRuntime}
+      />
+    {/if}
   {/if}
   {#if draft}
     <SettingsCard>
-      {@render modelControls()}
+      {#if managed && runtime}<ManagedRuntimeControls
+          {runtime}
+          {instanceID}
+          {disabled}
+          onManage={onManageRuntime}
+        />{:else if !managed}{@render modelControls()}{/if}
       {@render recognitionControls()}
     </SettingsCard>
-  {:else}
+  {:else if !managed}
     {@render modelControls()}
   {/if}
   {#if setup}
@@ -214,8 +252,9 @@
       <Switch
         id="voice-realtime"
         checked={cfg.realtime}
-        disabled={busy || (!cfg.realtime && (!connectionID || !cfg.model))}
-        onCheckedChange={(realtime) => update({ realtime })}
+        disabled={busy ||
+          (!managed && !cfg.realtime && (!connectionID || !cfg.model))}
+        onCheckedChange={setRealtime}
       />
     </div>
   {/if}
@@ -261,7 +300,8 @@
               ...cfg.transcriptionOptions,
               prompt: event.currentTarget.value,
             },
-          })}></textarea>
+          })}
+      ></textarea>
     </div>
   {/if}
 {/snippet}

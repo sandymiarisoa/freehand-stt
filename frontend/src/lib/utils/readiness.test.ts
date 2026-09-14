@@ -19,18 +19,88 @@ import {
   type Device,
   type Settings,
 } from "$lib/state";
+import { ProviderID, type InstanceStatus } from "$bindings/managedruntime";
 import { appReadiness, readinessVisible } from "$lib/utils/readiness";
+
+it("requires the selected Voice instance to be ready, independently of manual files", () => {
+  const cfg = settings();
+  cfg.voiceTranscription.baseURL = "";
+  cfg.voiceTranscription.model = "nemotron-3.5";
+  cfg.voiceTranscription.managedInstanceID = "local-voice";
+  cfg.savedConnections = { entries: [], selected: {} };
+  const runtime: InstanceStatus = {
+    instance: {
+      id: "local-voice",
+      name: "Local Voice",
+      provider: ProviderID.NeMoSpeechCPP,
+      model: "nemotron-3.5",
+      autoStart: false,
+    },
+    activeModel: "nemotron-3.5",
+    status: {
+      acquisition: { phase: "", bytes: 0, totalBytes: 0 },
+      operation: { id: 0, kind: "", model: "", outcome: "", error: "" },
+      supported: true,
+      state: "running",
+      enabled: true,
+      selectedModel: "nemotron-3.5",
+      realtime: true,
+      backend: "vulkan",
+      version: "0.1.0",
+      progress: 1,
+      phase: "Ready",
+      error: "",
+      models: [],
+    },
+  };
+  const ready = appReadiness(cfg, null, devices, false, "voice", runtime);
+  expect(ready.canComplete).toBe(true);
+  expect(ready.canTestConnection).toBe(false);
+  expect(ready.steps.find((s) => s.id === "server")?.settingsSection).toBe(
+    "local-runtime",
+  );
+  expect(cfg.voiceTranscription.baseURL).toBe("");
+  expect(
+    appReadiness(cfg, connection(), devices, false, "voice", {
+      ...runtime,
+      status: { ...runtime.status, state: "stopped" },
+    }).canComplete,
+  ).toBe(false);
+  expect(
+    appReadiness(cfg, connection(), devices, false, "voice", {
+      ...runtime,
+      status: { ...runtime.status, supported: false },
+    }).canComplete,
+  ).toBe(false);
+  expect(
+    appReadiness(cfg, null, devices, false, "file", runtime).canTestConnection,
+  ).toBe(true);
+  expect(
+    appReadiness(cfg, null, devices, false, "file", {
+      ...runtime,
+      status: { ...runtime.status, state: "stopped" },
+    }).recoveryNeeded,
+  ).toBe(false);
+  expect(
+    appReadiness(cfg, null, devices, false, "voice", {
+      ...runtime,
+      instance: { ...runtime.instance, id: "different-instance" },
+    }).canComplete,
+  ).toBe(false);
+});
 
 const devices: Device[] = [
   { id: "mic-1", name: "Desk microphone", default: true },
 ];
 
 const settings = (overrides: Partial<Settings> = {}): Settings => ({
+  managedRuntimes: [],
   vocabulary: { terms: "", voice: false, files: false, boost: 3 },
   savedConnections: {
     entries: [
       {
         id: "voice",
+        builtIn: false,
         name: "Voice",
         uses: [],
         hasCredential: overrides.credentialConfigured ?? true,
@@ -76,7 +146,7 @@ const settings = (overrides: Partial<Settings> = {}): Settings => ({
     timeoutSeconds: 120,
     transcriptionOptions: {
       prompt: "",
-        temperatureOverride: false,
+      temperatureOverride: false,
       temperature: 0,
     },
     compatibilityProfile: overrides.compatibilityProfile ?? ID.Generic,

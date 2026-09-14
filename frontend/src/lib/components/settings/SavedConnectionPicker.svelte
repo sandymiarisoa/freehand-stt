@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { type Catalog, type Change, type Purpose } from "$bindings/savedconnection";
+  import { session } from "$lib/stores/session.svelte";
+  import {
+    type Catalog,
+    type Change,
+    type Purpose,
+  } from "$bindings/savedconnection";
+  import { connectionTargetLabel } from "$lib/utils/connectionChoices";
   import ConnectionSelect from "$lib/components/settings/ConnectionSelect.svelte";
   import { Button } from "$lib/components/ui/button";
   let {
@@ -7,6 +13,7 @@
     purpose,
     dirty,
     busy,
+    inactive = false,
     onChange,
     onManage,
     onBrowse,
@@ -16,18 +23,30 @@
     purpose: Purpose;
     dirty: boolean;
     busy: boolean;
+    inactive?: boolean;
     onChange: (change: Change) => Promise<boolean>;
     onManage: () => void;
     onBrowse: () => void;
     onAdd: () => void;
   } = $props();
-  const entries = $derived((catalog.entries ?? []).filter((c) => c.uses?.includes(purpose)));
-  const selected = $derived(entries.find((c) => c.id === catalog.selected?.[purpose]));
+  const entries = $derived(
+    (catalog.entries ?? []).filter(
+      (c) => c.uses?.includes(purpose) || c.id === catalog.selected?.[purpose],
+    ),
+  );
+  const selected = $derived(
+    entries.find((c) => c.id === catalog.selected?.[purpose]),
+  );
 </script>
 
-<section class="border-b border-hairline pb-4" aria-label="Active connection">
+<section
+  class="border-b border-hairline pb-4"
+  aria-label={inactive ? "Saved manual connection" : "Active connection"}
+>
   <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-    <label for={`saved-connection-${purpose}`} class="text-sm font-medium">Connection</label>
+    <label for={`saved-connection-${purpose}`} class="text-sm font-medium"
+      >Connection</label
+    >
     <div class="min-w-44 flex-1">
       <ConnectionSelect
         id={`saved-connection-${purpose}`}
@@ -39,20 +58,28 @@
         onManage={onBrowse}
       />
     </div>
-    <Button variant="ghost" size="sm" disabled={busy} onclick={selected ? onManage : onAdd}
-      >{selected ? "Edit connection" : "Add connection"}</Button
+    <Button
+      variant="ghost"
+      size="sm"
+      disabled={busy}
+      onclick={selected ? onManage : onAdd}
+      >{selected?.builtIn
+        ? "Connection details"
+        : selected
+          ? "Edit connection"
+          : "Add connection"}</Button
     >
   </div>
   {#if selected}<p
       class="mt-2 truncate text-xs text-muted-foreground"
-      title={selected.details.baseURL}
+      title={connectionTargetLabel(selected, session.runtime.instances)}
     >
-      {selected.details.baseURL}
+      {connectionTargetLabel(selected, session.runtime.instances)}
     </p>
   {:else}<p class="mt-2 text-[13px] text-muted-foreground">
       {entries.length
         ? "Choose a saved connection to configure this feature."
-        : "Add a server, then choose its model here."}
+        : "Add a server connection or set up a local runtime. Built-in connections appear automatically."}
     </p>{/if}
   {#if dirty}<p class="mt-2 text-xs text-muted-foreground">
       Save or discard your edits before switching connections.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/tnware/freehand-stt/internal/compatibility"
 	"github.com/tnware/freehand-stt/internal/hotkey"
+	"github.com/tnware/freehand-stt/internal/managedruntime"
 	"github.com/tnware/freehand-stt/internal/modelprofile"
 	"github.com/tnware/freehand-stt/internal/speechlanguage"
 )
@@ -155,6 +156,7 @@ func S1MiniContextValues() []string {
 }
 
 type PostProcessingSettings struct {
+	ManagedInstanceID string                       `json:"managedInstanceID,omitempty"`
 	GenerationOptions compatibility.CleanupOptions `json:"generationOptions"`
 
 	CompatibilityProfile compatibility.ID `json:"compatibilityProfile"`
@@ -172,6 +174,7 @@ type PostProcessingSettings struct {
 }
 
 type TextToSpeechSettings struct {
+	ManagedInstanceID    string                     `json:"managedInstanceID,omitempty"`
 	Options              modelprofile.SpeechOptions `json:"options"`
 	ModelProfile         modelprofile.ID            `json:"modelProfile"`
 	CompatibilityProfile compatibility.ID           `json:"compatibilityProfile"`
@@ -195,6 +198,8 @@ const (
 )
 
 type Settings struct {
+	ManagedRuntimes                 []managedruntime.Instance  `json:"managedRuntimes"`
+	ManagedInstanceID               string                     `json:"managedInstanceID,omitempty"`
 	Vocabulary                      VocabularySettings         `json:"vocabulary"`
 	VoiceTranscription              VoiceTranscriptionSettings `json:"voiceTranscription"`
 	ModelProfile                    modelprofile.ID            `json:"modelProfile"`
@@ -251,6 +256,7 @@ type Settings struct {
 
 func Default() Settings {
 	return Settings{
+		ManagedRuntimes:      []managedruntime.Instance{},
 		Vocabulary:           VocabularySettings{Boost: 3},
 		VoiceTranscription:   DefaultVoiceTranscription(),
 		CompatibilityProfile: compatibility.Generic,
@@ -306,10 +312,28 @@ func (s Settings) EffectiveAppearanceMode() AppearanceMode {
 var headerNameRE = regexp.MustCompile(`^[!#$%&'*+\-.^_` + "`" + `|~0-9A-Za-z]+$`)
 
 func Validate(s Settings) error {
+	return validate(s, false)
+}
+
+// ValidateStored validates durable settings when reopening a database. Managed
+// task preferences survive a runtime migration even when the selected model
+// cannot execute them. This is not renderer or request admission: those callers
+// must use Validate and the resolved task validators.
+func ValidateStored(s Settings) error {
+	return validate(s, true)
+}
+
+func validate(s Settings, stored bool) error {
+	if err := managedruntime.ValidateInstances(s.ManagedRuntimes); err != nil {
+		return err
+	}
+	if err := validateManagedReferences(s); err != nil {
+		return err
+	}
 	if err := ValidateVocabulary(s.Vocabulary); err != nil {
 		return fieldError("vocabulary", "Check vocabulary text and strength.", err)
 	}
-	if err := ValidateVoiceTranscription(s.VoiceTranscription); err != nil {
+	if err := validateVoiceTranscription(s.VoiceTranscription, stored && s.VoiceTranscription.ManagedInstanceID != ""); err != nil {
 		return fieldError("voice-transcription", "Check the voice transcription connection, model profile, language, and options.", err)
 	}
 	if _, err := compatibility.Resolve(s.CompatibilityProfile, compatibility.Transcription); err != nil {
@@ -338,7 +362,11 @@ func Validate(s Settings) error {
 	default:
 		return fieldError("appearanceMode", "Choose system, light, or dark appearance mode.", errors.New("appearance mode is invalid"))
 	}
-	if err := modelprofile.ValidateTranscription(s.ModelProfile, s.CompatibilityProfile, s.Language, s.TranscriptionOptions.Inference()); err != nil {
+	validateTranscription := modelprofile.ValidateTranscription
+	if stored && s.ManagedInstanceID != "" {
+		validateTranscription = modelprofile.ValidateStoredTranscription
+	}
+	if err := validateTranscription(s.ModelProfile, s.CompatibilityProfile, s.Language, s.TranscriptionOptions.Inference()); err != nil {
 		return fieldError("modelProfile", "Choose a compatible transcription model profile, language, and options.", err)
 	}
 	if err := speechlanguage.Validate(s.Language); err != nil {
@@ -396,7 +424,14 @@ func Validate(s Settings) error {
 	if err := modelprofile.ValidateCleanup(modelprofile.ID(s.PostProcessing.Preset), s.PostProcessing.CompatibilityProfile, s.PostProcessing.GenerationOptions); err != nil {
 		return fieldError("postProcessing.preset", "Choose a compatible cleanup model profile and generation options.", err)
 	}
-	if s.PostProcessing.Enabled {
+	if s.PostProcessing.ManagedInstanceID != "" {
+		if err := validateManagedTransport(s.PostProcessing.BaseURL, s.PostProcessing.AllowInsecureHTTP, AuthenticationModeNone, "", nil); err != nil {
+			return err
+		}
+		if err := validatePostProcessingOptions(s.PostProcessing); err != nil {
+			return err
+		}
+	} else if s.PostProcessing.Enabled {
 		if err := ValidatePostProcessing(s.PostProcessing); err != nil {
 			return err
 		}
@@ -549,6 +584,9 @@ func ValidateOverlayPreferences(preferences OverlayPreferences) error {
 // of Voice setup. Model choice can follow metadata discovery; recording/file
 // request admission enforces the selected backend's model requirement.
 func validatePersistedSTTSettings(s Settings) error {
+	if s.ManagedInstanceID != "" {
+		return validateManagedTransport(s.BaseURL, s.AllowInsecureHTTP, s.AuthenticationMode, s.HealthPath, s.Headers)
+	}
 	if s.BaseURL == "" && s.Model == "" {
 		switch s.AuthenticationMode {
 		case AuthenticationModeAPIKey, AuthenticationModeNone:
@@ -626,7 +664,20 @@ func validateHeaders(headers map[string]string) error {
 	return nil
 }
 
+// ValidatePostProcessing admits a resolved request, not a durable managed reference.
 func ValidatePostProcessing(s PostProcessingSettings) error {
+	if s.ManagedInstanceID != "" {
+		if err := validateResolvedManagedTransport(s.BaseURL, AuthenticationModeNone, "", nil); err != nil {
+			return err
+		}
+	}
+	if err := validatePostProcessingConnection(s.BaseURL, s.AllowInsecureHTTP, s.Model, true); err != nil {
+		return err
+	}
+	return validatePostProcessingOptions(s)
+}
+
+func validatePostProcessingOptions(s PostProcessingSettings) error {
 	if err := modelprofile.ValidateCleanup(modelprofile.ID(s.Preset), s.CompatibilityProfile, s.GenerationOptions); err != nil {
 		return fieldError("postProcessing.preset", "Choose a compatible cleanup model profile and generation options.", err)
 	}
@@ -636,8 +687,8 @@ func ValidatePostProcessing(s PostProcessingSettings) error {
 	if err := validateTimeout("post-processing request", s.TimeoutSeconds, MinRequestTimeoutSeconds, MaxRequestTimeoutSeconds); err != nil {
 		return fieldError("postProcessing.timeoutSeconds", fmt.Sprintf("Enter a cleanup timeout from %d to %d seconds.", MinRequestTimeoutSeconds, MaxRequestTimeoutSeconds), err)
 	}
-	if err := validatePostProcessingConnection(s.BaseURL, s.AllowInsecureHTTP, s.Model, true); err != nil {
-		return err
+	if strings.TrimSpace(s.Model) == "" || len(s.Model) > 200 {
+		return fieldError("postProcessing.model", "Choose a cleanup model of at most 200 characters.", errors.New("post-processing model is required and must be at most 200 characters"))
 	}
 	if len(s.SystemPrompt) > MaxPromptBytes {
 		return fieldError("postProcessing.systemPrompt", fmt.Sprintf("Enter a cleanup system instruction of at most %d bytes.", MaxPromptBytes), fmt.Errorf("post-processing system prompt must be at most %d bytes", MaxPromptBytes))

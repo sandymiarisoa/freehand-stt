@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,6 +17,7 @@ import (
 	"github.com/tnware/freehand-stt/internal/config"
 	"github.com/tnware/freehand-stt/internal/credential"
 	"github.com/tnware/freehand-stt/internal/diagnostics"
+	"github.com/tnware/freehand-stt/internal/managedruntime"
 	"github.com/tnware/freehand-stt/internal/modelprofile"
 	"github.com/tnware/freehand-stt/internal/modelsettings"
 	"github.com/tnware/freehand-stt/internal/postprocess"
@@ -113,6 +115,9 @@ func WithUpdateChecks(apply func(bool)) Option {
 }
 
 type Service struct {
+	managedResolve         func(managedruntime.Instance, compatibility.Role) (managedruntime.ResolvedEndpoint, error)
+	managedChanged         func([]managedruntime.Instance)
+	managedReserve         func([]managedruntime.Instance) (*managedruntime.InventoryReservation, error)
 	mu                     sync.RWMutex
 	publicationMu          sync.Mutex // Serializes commits through runtime publication; callbacks may read settings.
 	saveMu                 sync.Mutex
@@ -171,17 +176,18 @@ type Source func() config.Settings
 func (source Source) Current() config.Settings { return source() }
 
 type RequestProfile struct {
-	Settings                 config.Settings
-	STTCredential            string
-	VoiceCredential          string
-	PostProcessingCredential string
+	Settings                  config.Settings
+	STTCredential             string
+	VoiceCredential           string
+	PostProcessingCredential  string
+	PostProcessingUnavailable error
 }
 
 type ProfileSource func() (RequestProfile, error)
 
 func (source ProfileSource) Capture() (RequestProfile, error) { return source() }
 
-func CurrentSource(service *Service) Source { return service.current }
+func CurrentSource(service *Service) Source { return service.effectiveCurrent }
 
 func DictationProfiles(service *Service) ProfileSource {
 	return func() (RequestProfile, error) { return service.captureProfile(true) }
@@ -225,6 +231,7 @@ func (s *Service) current() config.Settings {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	v := s.cfg
+	v.ManagedRuntimes = slices.Clone(v.ManagedRuntimes)
 	v.Headers = clone(v.Headers)
 	v.VoiceTranscription.Headers = clone(v.VoiceTranscription.Headers)
 	return v
@@ -249,6 +256,11 @@ func (s *Service) captureProfile(dictation bool) (RequestProfile, error) {
 		return RequestProfile{}, errors.New("saved settings must be recovered before transcription can start")
 	}
 	profile := RequestProfile{Settings: s.current()}
+	var managedErr error
+	profile.Settings, managedErr = s.managedSettings(profile.Settings, dictation)
+	if managedErr != nil {
+		return RequestProfile{}, managedErr
+	}
 	if !dictation && profile.Settings.AuthenticationMode == config.AuthenticationModeAPIKey {
 		if s.keys == nil {
 			return RequestProfile{}, errors.New("API credential is not configured")
@@ -270,7 +282,8 @@ func (s *Service) captureProfile(dictation bool) (RequestProfile, error) {
 		profile.VoiceCredential = key
 		profile.STTCredential = key
 	}
-	if profile.Settings.PostProcessing.Enabled && s.processKeys != nil {
+	profile.Settings, profile.PostProcessingUnavailable = s.managedCleanup(profile.Settings)
+	if profile.Settings.PostProcessing.Enabled && profile.Settings.PostProcessing.ManagedInstanceID == "" && s.processKeys != nil {
 		key, err := s.processKeys.Get()
 		switch {
 		case err == nil:
@@ -292,6 +305,15 @@ func (s *Service) captureProfile(dictation bool) (RequestProfile, error) {
 		var err error
 		profile.Settings, err = config.WithVocabulary(profile.Settings, false)
 		if err != nil {
+			return RequestProfile{}, err
+		}
+	}
+	if (!dictation && profile.Settings.ManagedInstanceID != "") || (dictation && profile.Settings.VoiceTranscription.ManagedInstanceID != "") {
+		if dictation {
+			if err := config.ValidateVoiceRecording(profile.Settings.VoiceTranscription); err != nil {
+				return RequestProfile{}, err
+			}
+		} else if err := modelprofile.ValidateTranscription(profile.Settings.ModelProfile, profile.Settings.CompatibilityProfile, profile.Settings.Language, profile.Settings.TranscriptionOptions.Inference()); err != nil {
 			return RequestProfile{}, err
 		}
 	}
@@ -319,6 +341,9 @@ func (s *Service) captureTextToSpeechProfile(draft *TextToSpeechPreview) (TextTo
 		if math.IsNaN(draft.Speed) || math.IsInf(draft.Speed, 0) {
 			return TextToSpeechProfile{}, errors.New("speech preview speed must be finite")
 		}
+		if profile.Settings.ManagedInstanceID != "" && (strings.TrimSpace(draft.Model) != profile.Settings.Model || draft.ModelProfile != profile.Settings.ModelProfile) {
+			return TextToSpeechProfile{}, errors.New("speech preview cannot change the managed instance model or profile")
+		}
 		profile.Settings.Options = draft.Options
 		profile.Settings.Enabled = draft.Enabled
 		profile.Settings.ModelProfile = draft.ModelProfile
@@ -326,12 +351,21 @@ func (s *Service) captureTextToSpeechProfile(draft *TextToSpeechPreview) (TextTo
 		profile.Settings.Voice = strings.TrimSpace(draft.Voice)
 		profile.Settings.Speed = draft.Speed
 		profile.Settings.TimeoutSeconds = draft.TimeoutSeconds
-		if err := config.ValidateTextToSpeech(profile.Settings, true); err != nil {
-			return TextToSpeechProfile{}, err
-		}
+		// Validate the actual resolved transport below, after the bounded draft.
 	}
 	if !profile.Settings.Enabled {
 		return TextToSpeechProfile{}, errors.New("speech playback is disabled")
+	}
+	current.TextToSpeech = profile.Settings
+	resolved, err := s.managedSpeech(current)
+	if err != nil {
+		return TextToSpeechProfile{}, err
+	}
+	profile.Settings = resolved.TextToSpeech
+	if draft != nil || profile.Settings.ManagedInstanceID != "" {
+		if err := config.ValidateTextToSpeech(profile.Settings, true); err != nil {
+			return TextToSpeechProfile{}, err
+		}
 	}
 	if profile.Settings.AuthenticationMode == config.AuthenticationModeAPIKey {
 		if s.ttsKeys == nil {
@@ -514,6 +548,8 @@ func (s *Service) SaveSettings(request SaveSettingsRequest) (result SettingsDTO,
 		if clearTTSKey && strings.TrimSpace(newTTSAPIKey) != "" {
 			return SettingsDTO{}, errors.New("cannot set and clear the speech playback API key together")
 		}
+		// Preserve authoritative inventory before connection projection and validation.
+		v.ManagedRuntimes = s.current().ManagedRuntimes
 		if request.ExpectedConnections != nil {
 			store, ok := s.store.(interface {
 				ConnectionCatalog() savedconnection.Catalog
@@ -536,6 +572,27 @@ func (s *Service) SaveSettings(request SaveSettingsRequest) (result SettingsDTO,
 			return SettingsDTO{}, errors.New("model and connection changes must be separate")
 		}
 		if change := request.ConnectionChange; change != nil {
+			managedAlias := change.Action == savedconnection.Create && change.Details != nil && change.Details.ManagedInstanceID != ""
+			if change.Action == savedconnection.Update || change.Action == savedconnection.Duplicate {
+				if catalog, ok := s.store.(interface {
+					ConnectionCatalog() savedconnection.Catalog
+				}); ok {
+					for _, c := range catalog.ConnectionCatalog().Entries {
+						if c.ID != change.ID {
+							continue
+						}
+						if change.Action == savedconnection.Duplicate {
+							managedAlias = c.Details.ManagedInstanceID != ""
+						} else if change.Details != nil {
+							managedAlias = change.Details.ManagedInstanceID != "" && change.Details.ManagedInstanceID != c.Details.ManagedInstanceID
+						}
+						break
+					}
+				}
+			}
+			if managedAlias {
+				return SettingsDTO{}, errors.New("managed runtimes provide built-in connections automatically; select the runtime connection instead")
+			}
 			store, ok := s.store.(interface {
 				BeginConnectionChange(savedconnection.Change, config.Settings) (config.Settings, error)
 				StageConnectionCredential(string, bool) error
@@ -609,6 +666,7 @@ func (s *Service) SaveSettings(request SaveSettingsRequest) (result SettingsDTO,
 				return SettingsDTO{}, err
 			}
 		}
+		// Runtime inventory has already been restored before task projection.
 		v.Model = strings.TrimSpace(v.Model)
 		v.PostProcessing.Model = strings.TrimSpace(v.PostProcessing.Model)
 		v.TextToSpeech.Model = strings.TrimSpace(v.TextToSpeech.Model)
@@ -764,21 +822,7 @@ func (s *Service) SaveSettings(request SaveSettingsRequest) (result SettingsDTO,
 		}
 		return SettingsDTO{}, err
 	}
-	if overlaySettingsDiffer(old, v) && s.overlaySettingsChanged != nil {
-		s.overlaySettingsChanged(v)
-	}
-	if s.historyEnabledChanged != nil {
-		s.historyEnabledChanged(v.HistoryEnabled)
-	}
-	if s.fileSettingsChanged != nil {
-		s.fileSettingsChanged(v)
-	}
-	if s.updateChecksChanged != nil {
-		s.updateChecksChanged(v.CheckForUpdates)
-	}
-	if s.settingsChanged != nil {
-		s.settingsChanged(result)
-	}
+	s.publishSettingsChange(old, v, result)
 	return result, nil
 }
 
@@ -815,12 +859,19 @@ func (s *Service) RetryConfiguration() (result SettingsDTO, err error) {
 		)
 		return result, nil
 	}
+	reservation, err := s.reserveManaged(next.ManagedRuntimes)
+	if err != nil {
+		s.saveMu.Unlock()
+		return SettingsDTO{}, err
+	}
+	defer reservation.Finish(false)
 	result, old, err := s.applyRecoveredSettingsLocked(next, false)
 	s.saveMu.Unlock()
 	if err != nil {
 		s.log().Warn("settings recovery apply failed", "duration_ms", time.Since(started).Milliseconds(), "error_kind", diagnostics.ErrorKind(err))
 		return SettingsDTO{}, err
 	}
+	reservation.Finish(true)
 	s.publishSettingsChange(old, next, result)
 	s.log().Info("settings recovery completed",
 		"duration_ms", time.Since(started).Milliseconds(),
@@ -848,19 +899,30 @@ func (s *Service) ResetConfiguration() (result SettingsDTO, err error) {
 		return result, nil
 	}
 	next := config.Default()
+	reservation, err := s.reserveManaged(next.ManagedRuntimes)
+	if err != nil {
+		s.saveMu.Unlock()
+		return SettingsDTO{}, err
+	}
+	defer reservation.Finish(false)
 	result, old, err := s.applyRecoveredSettingsLocked(next, true)
 	s.saveMu.Unlock()
 	if err != nil {
 		s.log().Warn("settings recovery reset failed", "duration_ms", time.Since(started).Milliseconds(), "error_kind", diagnostics.ErrorKind(err))
 		return SettingsDTO{}, err
 	}
+	reservation.Finish(true)
 	s.publishSettingsChange(old, next, result)
 	s.log().Info("settings recovery completed", "duration_ms", time.Since(started).Milliseconds(), "outcome", "reset")
 	return result, nil
 }
 
 func (s *Service) applyRecoveredSettingsLocked(next config.Settings, persist bool) (SettingsDTO, config.Settings, error) {
-	if err := config.Validate(next); err != nil {
+	validate := config.ValidateStored
+	if persist {
+		validate = config.Validate
+	}
+	if err := validate(next); err != nil {
 		return SettingsDTO{}, config.Settings{}, err
 	}
 	old := s.current()
@@ -896,6 +958,9 @@ func (s *Service) applyRecoveredSettingsLocked(next config.Settings, persist boo
 }
 
 func (s *Service) publishSettingsChange(old, next config.Settings, result SettingsDTO) {
+	if s.managedChanged != nil {
+		s.managedChanged(slices.Clone(next.ManagedRuntimes))
+	}
 	if overlaySettingsDiffer(old, next) && s.overlaySettingsChanged != nil {
 		s.overlaySettingsChanged(next)
 	}

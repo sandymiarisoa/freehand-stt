@@ -24,6 +24,7 @@
   import type { Message } from "$lib/utils/messages";
   import { isFailure, statusMessage } from "$lib/utils/status";
   import { appReadiness, readinessVisible } from "$lib/utils/readiness";
+  import { runtimePresentation } from "$lib/utils/managedRuntime";
   import {
     FileTranscriptionPhase,
     State,
@@ -93,6 +94,27 @@
   const runtimeSettings = $derived(
     session.editor.applied ?? session.editor.draft,
   );
+  const instanceID = $derived(
+    (inputMode === "file"
+      ? runtimeSettings?.managedInstanceID
+      : runtimeSettings?.voiceTranscription.managedInstanceID) ?? "",
+  );
+  const managed = $derived(!!instanceID);
+  const runtime = $derived(session.runtime.statusFor(instanceID));
+  const local = $derived(runtimePresentation(runtime?.status));
+  const localModel = $derived(
+    local.selected?.name || runtime?.instance.model || "Local speech",
+  );
+  const recordingAvailability = $derived(
+    managed && (!local.ready || session.runtime.isBusy(instanceID))
+      ? `Local speech: ${session.runtime.isBusy(instanceID) ? "Updating" : local.label}`
+      : "",
+  );
+  function openLocalRuntime() {
+    void WindowingService.OpenTaskSettings("local-runtime", inputMode).catch(
+      (cause) => session.messages.fail(cause),
+    );
+  }
   const readiness = $derived(
     runtimeSettings
       ? appReadiness(
@@ -103,6 +125,7 @@
           session.editor.devices,
           session.editor.devicesBusy,
           inputMode === "file" ? "file" : "voice",
+          runtime,
         )
       : null,
   );
@@ -119,6 +142,15 @@
       inputMode !== "tts" &&
       readiness &&
       readinessVisible(readiness, dismissedRecoveryKey) &&
+      // Runtime lifecycle is recoverable in quick settings. Keep that surface
+      // mounted when stopping/switching models instead of navigating away.
+      !(
+        managed &&
+        !readiness.initialSetup &&
+        readiness.steps.every(
+          (step) => !step.blocking || step.settingsSection === "local-runtime",
+        )
+      ) &&
       !voiceActive &&
       !fileWorking,
     ),
@@ -197,13 +229,16 @@
   {#if inputMode !== "tts"}
     <div class="transport-frame">
       {#if session.editor.draft}
-        {#if !showReadiness}
+        {#if !readiness?.initialSetup}
           {#if inputMode === "voice"}
             <TransportBar
               status={session.dictation.status}
+              availability={recordingAvailability}
               busy={fileWorking}
               toggleShortcut={session.editor.draft.toggleShortcut}
-              model={runtimeSettings?.voiceTranscription.model ?? ""}
+              model={managed
+                ? localModel
+                : (runtimeSettings?.voiceTranscription.model ?? "")}
               processingModel={runtimeSettings?.postProcessing.model ?? ""}
               microphone={microphoneLabel}
               onToggle={() => session.dictation.toggleRecording()}
@@ -211,7 +246,7 @@
               onCopy={() => session.dictation.copyPending()}
               onOpenSettings={() =>
                 void WindowingService.OpenTaskSettings(
-                  "voice-transcription",
+                  managed ? "local-runtime" : "voice-transcription",
                   inputMode,
                 ).catch((cause) => session.messages.fail(cause))}
             />
@@ -227,7 +262,7 @@
               onStreamingChange={(enabled) =>
                 (session.files.streamingPreferred = enabled)}
               voiceActive={voiceActive || ttsWorking}
-              onOpenSettings={onOpenServerSettings}
+              onOpenSettings={managed ? openLocalRuntime : onOpenServerSettings}
               onChoose={() => session.files.chooseAudioFile()}
               onStart={() => session.files.startFileTranscription()}
               onTryStreamingAgain={() => session.files.tryFileStreamingAgain()}
@@ -285,6 +320,8 @@
         {#snippet quickSettings()}
           <SpeechQuickSettings
             settings={runtimeSettings!}
+            runtime={session.runtime}
+            onManageRuntime={openLocalRuntime}
             editor={session.editor}
             disabled={quickSettingsDisabled || session.editor.saving}
             onAddConnection={addConnection}
@@ -370,6 +407,8 @@
                   <ResultQuickSettings
                     settings={runtimeSettings!}
                     editor={session.editor}
+                    runtimeState={session.runtime}
+                    onOpenLocalRuntime={openLocalRuntime}
                     showCapture={inputMode === "voice"}
                     disabled={quickSettingsDisabled || session.editor.saving}
                     onAddConnection={addConnection}
@@ -405,7 +444,8 @@
                     dismissedRecoveryKey = readiness.recoveryKey;
                   }}
                   onOpenSettings={(section) => {
-                    if (section === "audio") onOpenAudioSettings();
+                    if (section === "local-runtime") openLocalRuntime();
+                    else if (section === "audio") onOpenAudioSettings();
                     else if (section === "shortcuts") onOpenShortcutSettings();
                     else if (section === "voice-transcription")
                       void WindowingService.OpenTaskSettings(
@@ -419,6 +459,8 @@
                     {#if inputMode === "voice"}
                       <VoiceTranscriptionSettings
                         setup
+                        runtime={session.runtime}
+                        onManageRuntime={openLocalRuntime}
                         editor={session.editor}
                         settings={runtimeSettings!}
                         disabled={quickSettingsDisabled ||
@@ -427,6 +469,8 @@
                       />
                     {:else}
                       <QuickSettings
+                        runtime={session.runtime}
+                        onManageRuntime={openLocalRuntime}
                         onEnterTranscription={() =>
                           void session.editor.ensureConnectionMetadata(
                             Purpose.Transcription,

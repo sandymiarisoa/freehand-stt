@@ -91,6 +91,47 @@ Never log:
 
 Classify errors with `diagnostics.ErrorKind`; do not attach `err`, `err.Error()`, or `%v` to a runtime record. User-facing error messages belong in the existing bounded status/error surfaces. A frontend failure that requires action must be shown there rather than existing only in `console.*` output.
 
+## Managed process output
+
+The **Process output** viewer displays bounded child output only after explicit
+sensitive-output consent. It is separate from application logs. Arbitrary upstream output
+may include prompts, transcripts, paths, and other sensitive content; terminal
+control filtering is not comprehensive redaction.
+
+The worker keeps a private rolling tail by default, limited to 256 KiB, 1,024
+chunks, and 4 KiB per chunk. Existing bounded-prefix diagnostics parsing and
+strict command metadata capture remain separate and are not viewer data.
+The tail is generation-fenced and may remain after child exit. Clear, the next
+start attempt, runtime removal, and shutdown release it. Disabling viewer access
+revokes reads but does not erase this private capture.
+
+Require sensitive-output consent per viewer opening or runtime switch. Use only
+bounded cursor-delta binding reads while authorized, never raw output events.
+Clear visible frontend data and revoke access on close/switch; fence late reads
+and bound renderer accumulation. Read-only xterm.js rendering accepts only
+backend-filtered SGR colors/styles, carriage return, backspace, and CSI K
+line-erasure controls for progress updates. Never interpret HTML or enable output-triggered clipboard, links,
+window titles, or process input. Follow affects scrolling only; Clear and window
+lifecycle must not affect process ownership. Explicit Copy selection is allowed;
+export, file retention, clipboard automation, crash-report attachment, and
+application-log forwarding remain prohibited. Lifecycle notification events
+may identify the viewer state, not carry output text.
+
+Keep Wails at `Info`: bridge debug tracing can serialize these sensitive binding
+results as well as credential drafts and transcripts. llama.cpp `b10809` uses
+`--log-verbosity 3 --log-colors on` for both CPU and CUDA. Normal info/warnings/errors go
+only to the existing bounded private capture; trace/debug is not enabled.
+Normal logging is not redaction and can still contain sensitive content.
+
+The pinned common logger has no default disk sink. Do not pass `--log-file` or
+`--log-prompts-dir`, and preserve the fixed environment allowlist: upstream
+logging environment variables and Windows `APPDATA`/`PROGRAMDATA` config files
+are processed before argv and must not enable a file sink or change verbosity.
+Whisper.cpp verbosity is unchanged. Sparse or absent output does not establish
+startup failure, and level 3 does not expose all low-level loading details.
+Do not enable broad logging to manufacture progress; startup phases come from
+owned lifecycle boundaries and contain no raw text.
+
 ## Noise limits
 
 Do not log PCM callbacks, audio levels, every VAD frame/state oscillation, upload ticks, streamed transcript deltas, renderer events, or routine polling/snapshot reads. Log segment/checkpoint boundaries and whole-operation results instead. The UI and native overlay own live feedback.

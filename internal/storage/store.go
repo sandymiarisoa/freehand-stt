@@ -47,6 +47,9 @@ type Store struct {
 	vault                   Vault
 }
 
+// Directory returns the immutable application-data root without touching disk.
+func Directory(s *Store) string { return filepath.Dir(s.path) }
+
 // NewStore does not open or modify any files. Load owns initialization/recovery.
 func NewStore() (*Store, error) {
 	local, err := localDataDir()
@@ -84,7 +87,7 @@ func (s *Store) Load() (config.Settings, error) {
 	if err != nil {
 		return config.Default(), failure("corrupt", err)
 	}
-	if err = config.Validate(v); err != nil {
+	if err = config.ValidateStored(v); err != nil {
 		return config.Default(), failure("invalid_values", err)
 	}
 	if err = s.loadReferences(ctx); err != nil {
@@ -118,6 +121,9 @@ func (s *Store) Save(v config.Settings) error {
 	}
 	defer tx.Rollback()
 	q := dbgen.New(tx)
+	if err = writeInstances(ctx, q, v); err != nil {
+		return err
+	}
 	if err = writeSettings(ctx, q, v); err != nil {
 		return failure("write_failed", err)
 	}
@@ -138,6 +144,9 @@ func (s *Store) Save(v config.Settings) error {
 	}
 	nextConnections, err := s.writeConnections(ctx, q, v)
 	if err != nil {
+		return failure("write_failed", err)
+	}
+	if err = deleteInstances(ctx, q, v); err != nil {
 		return failure("write_failed", err)
 	}
 	if err = writeRememberedModels(ctx, q, &nextConnections, v); err != nil {
@@ -310,6 +319,9 @@ func (s *Store) initialize(ctx context.Context, db *sql.DB, v config.Settings) e
 	}
 	defer tx.Rollback()
 	q := dbgen.New(tx)
+	if err = writeInstances(ctx, q, v); err != nil {
+		return err
+	}
 	if err = writeSettings(ctx, q, v); err != nil {
 		return err
 	}

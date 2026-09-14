@@ -186,7 +186,7 @@ describe("shared session event composition", () => {
       offSecond();
       expect(events.count()).toBe(0);
       const offAgain = subscribeSessionEvents(second, events.on);
-      expect(events.count()).toBe(5);
+      expect(events.count()).toBe(6);
       offAgain();
       events.emit("dictation:status", {
         ...recording,
@@ -217,4 +217,47 @@ describe("shared session event composition", () => {
     expect(events.count()).toBe(0);
     session.dispose();
   });
+
+  it("routes runtime status to each window and detaches it on teardown", () => {
+    const session = new Session(
+      serviceWithStatus(() => CancellablePromise.resolve(idle)),
+    );
+    const events = eventSource();
+    const off = subscribeSessionEvents(session, events.on);
+    const status: SessionEventMap["managed-runtime:status"] = {
+      instance: {
+        id: "local",
+        name: "Local",
+        provider: ProviderID.NeMoSpeechCPP,
+        model: "nemotron-3.5",
+        autoStart: false,
+      },
+      activeModel: "nemotron-3.5",
+      status: {
+        acquisition: { phase: "", bytes: 0, totalBytes: 0 },
+        operation: { id: 0, kind: "", model: "", outcome: "", error: "" },
+        supported: true,
+        state: "running",
+        enabled: true,
+        selectedModel: "nemotron-3.5",
+        realtime: true,
+        backend: "cpu",
+        version: "v0.1.0",
+        progress: -1,
+        phase: "",
+        error: "",
+        models: [],
+      },
+    };
+    events.emit("managed-runtime:status", status);
+    expect(session.runtime.statusFor("local")).toEqual(status);
+    off();
+    events.emit("managed-runtime:status", {
+      ...status,
+      status: { ...status.status, state: "stopped" },
+    });
+    expect(session.runtime.statusFor("local")?.status.state).toBe("running");
+    session.dispose();
+  });
 });
+import { ProviderID } from "$bindings/managedruntime";
