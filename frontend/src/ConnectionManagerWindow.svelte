@@ -11,6 +11,7 @@
   import BuiltInConnectionDetails from "$lib/components/settings/BuiltInConnectionDetails.svelte";
   import * as WindowingService from "$bindings/windowing/service";
   import ConnectionSaveActions from "$lib/components/settings/ConnectionSaveActions.svelte";
+  import PendingChangesDialog from "$lib/components/settings/PendingChangesDialog.svelte";
   import ConnectionDiagnostics from "$lib/components/settings/ConnectionDiagnostics.svelte";
   import { connectionStatusLabel } from "$lib/utils/connection";
   import { sectionByID } from "$lib/navigation";
@@ -292,9 +293,14 @@
           disabled={busy}
           onclick={() => leave(false)}><ArrowLeftIcon />All connections</Button
         >{/if}
-      <h1 class="truncate text-base font-semibold">Connections</h1>
+      <div class="min-w-0">
+        <h1 class="truncate text-lg font-semibold">Connections</h1>
+        <p class="mt-0.5 text-xs text-secondary-foreground">
+          Saved servers and built-in runtimes
+        </p>
+      </div>
     </div>
-    <Button variant="ghost" disabled={busy} onclick={() => leave(true)}
+    <Button variant="outline" disabled={busy} onclick={() => leave(true)}
       >Done</Button
     >
   </header>
@@ -309,7 +315,7 @@
         {session.messages.error}
       </p>{/if}
     <div class="manager-body" class:editing={showingDetails}>
-      <aside class="connection-list bg-layer-fill">
+      <aside class="connection-list bg-background">
         <ConnectionList
           catalog={editor.applied.savedConnections}
           instances={session.runtime.instances}
@@ -340,13 +346,13 @@
                     {#snippet child({ props })}<Button
                         {...props}
                         size="sm"
-                        variant="outline">Use for…</Button
+                        variant="soft">Use for…</Button
                       >{/snippet}
                   </Menu.Trigger><Menu.Content
                     align="end"
                     class="w-80 max-w-[calc(100vw-24px)] p-1.5"
                   >
-                    {#each connectionWorkflows.filter( (role) => selected?.uses?.includes(role.id), ) as role (role.id)}
+                    {#each connectionWorkflows.filter( (role) => selected?.uses?.includes(role.id) ) as role (role.id)}
                       {@const Icon = sectionByID(role.section).icon}
                       {@const current =
                         editor.applied.savedConnections.selected?.[role.id] ===
@@ -416,7 +422,7 @@
               </div>{/if}
           </div>
           <main
-            class="connection-fields min-h-0 flex-1 overflow-y-auto overscroll-contain p-4"
+            class="connection-fields space-y-4 min-h-0 flex-1 overflow-y-auto overscroll-contain p-4"
           >
             {#if selected?.builtIn}
               <BuiltInConnectionDetails
@@ -439,8 +445,11 @@
                 onBack={() => leave(false)}
                 onSaved={saved}
               />{/if}
-            {#if selected}<details class="mt-4 border-t border-hairline py-3">
-                <summary class="cursor-pointer text-xs font-medium"
+            {#if selected}<details
+                class="rounded-xl border border-hairline bg-card p-3"
+              >
+                <summary
+                  class="cursor-pointer rounded-sm text-xs font-medium text-accent-text focus-visible:outline-ring"
                   >Connection check · {connectionStatusLabel(
                     editor.savedConnectionChecks[selected.id] ?? null,
                   )}</summary
@@ -490,44 +499,21 @@
       >
     </div>{/if}
 </div>
-<Dialog.Root
+<PendingChangesDialog
   open={discardOpen}
-  onOpenChange={(open) => {
-    if (!open && busy) return;
-    discardOpen = open;
-    if (!open) {
-      pendingAction = null;
-      onCancelClose();
-    }
+  {busy}
+  title="Save connection changes?"
+  description="Your edits will be kept until you save or discard them."
+  error={session.messages.error}
+  errorClass="text-sm text-destructive"
+  onKeepEditing={() => {
+    discardOpen = false;
+    pendingAction = null;
+    onCancelClose();
   }}
->
-  <Dialog.Content
-    ><Dialog.Header
-      ><Dialog.Title>Save connection changes?</Dialog.Title><Dialog.Description
-        >Your edits will be kept until you save or discard them.</Dialog.Description
-      ></Dialog.Header
-    >
-    {#if session.messages.error}<p
-        role="alert"
-        class="text-sm text-destructive"
-      >
-        {session.messages.error}
-      </p>{/if}
-    <Dialog.Footer
-      ><Button
-        variant="outline"
-        disabled={busy}
-        onclick={() => {
-          discardOpen = false;
-          pendingAction = null;
-          onCancelClose();
-        }}>Keep editing</Button
-      ><Button variant="ghost" disabled={busy} onclick={discard}>Discard</Button
-      ><Button disabled={busy} onclick={saveAndContinue}>Save</Button
-      ></Dialog.Footer
-    >
-  </Dialog.Content>
-</Dialog.Root>
+  onDiscard={discard}
+  onSave={saveAndContinue}
+/>
 <Dialog.Root bind:open={deleteOpen}>
   <Dialog.Content
     ><Dialog.Header

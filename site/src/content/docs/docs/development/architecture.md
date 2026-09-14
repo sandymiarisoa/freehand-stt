@@ -45,6 +45,10 @@ never loads models. Each provider is bounded to one installation and one process
 tree, including retired workers. Existing duplicate entries remain explicitly
 repairable without ID, Connection, or model rewrites. Different providers can run concurrently.
 
+NeMo and GGML archive installers share the bounded download and checksum
+verification path. Each installer still owns its staging directory, extraction,
+publication, and recovery; sharing transfer code does not merge provider recipes.
+
 Each configured runtime has a built-in row in connection state. Storage derives its
 stable identity and qualified uses and materializes it through ordinary settings
 transactions, preserving selection and remembered-option foreign keys. There is
@@ -685,16 +689,38 @@ publishes its own status and diagnostics.
 
 ## Renderer state ownership
 
+Settings and Connection navigation use the controlled `PendingChangesDialog`.
+Parents own drafts, pending destinations, and save/discard actions; the shared
+dialog owns presentation and blocks Escape/outside dismissal while saving.
+Confirmed settings adoption invalidates metadata once through `SettingsEditor`,
+including credential changes that are invisible to the renderer.
+
+`LocalRuntimeSection` owns provider selection, installation choices, action
+guards, and removal confirmations. `LocalRuntimeDetails` renders setup and
+preferences, and `LocalRuntimeModelCatalog` renders the qualified model list.
+Both use the existing runtime store and parent action guard; component mounting
+does not acquire models or start processes.
+
 Each WebView composes its own `Session` from feature owners under
 `frontend/src/lib/stores`. `Session` owns construction, initial loading order,
 aggregate busy presentation, and presentation teardown; it is not a second
 command facade or a container for feature state.
+Disposal is terminal: `Session` stops scheduling subsequent initialization steps
+and suppresses late initialization failures. Already-started operations retain
+their feature owners. The app mount separately guards metadata replies,
+appearance updates, and the `ShellReady` handshake against component teardown.
 
 - `SettingsEditor` owns the applied settings snapshot, independent editable
   settings/credential draft, connection probes, microphone choices, recovery,
   and serialized quick saves. These remain together to preserve one coherent
-  editing transaction.
-- `DictationState` owns live-dictation projection and commands.
+  editing transaction. Pure snapshot copying and quick-control patch projection
+  live in `utils/settingsDraft.ts`; that helper owns no bindings, credentials,
+  save queue, or reactive state.
+- `DictationState` owns live-dictation projection and commands. It rejects older
+  generations before changing state or triggering history and notification
+  reactions. Snapshot responses use the same admission rule; a newer generation
+  wins even when overlapping reads finish in the opposite order. Same-generation
+  outcomes remain valid, while intervening events supersede same-generation reads.
 - `FileTranscriptionState` owns stored-file projection, generation/revision
   reconciliation, delta-gap recovery, and explicit file commands. It also owns the
   renderer-session streaming preference independently of backend capability status.
@@ -759,6 +785,19 @@ floating-menu surfaces, selection states, and focus rings remain explicit;
 decorative container frames do not own workflow or scrolling behavior.
 The shared switch uses a pill track and an inset circular thumb, retaining
 Bits UI state, keyboard semantics, and visible focus indicators.
+
+The renderer retains the existing neutral light and charcoal surfaces and brand
+accents. Page headings and field labels establish the reading order; descriptions
+use readable secondary text. Primary actions use dedicated action tokens for
+legible normal and hover states. The shared `Button` soft variant identifies
+contextual actions, and `StatusBadge` pairs status text with semantic tones;
+color alone never communicates readiness, failure, or selection. Compact
+Connection and runtime rows keep identity, current state, and the next action
+visible together. Their source provenance and ownership explanations remain in
+contextual disclosures. Shortcut rows give the action and chord priority, show
+capture feedback only when present, and keep allowed-key rules in a keyboard
+accessible disclosure associated with the recording control. Shared visual
+primitives do not own credentials, runtime lifecycles, or saved values.
 
 Task-local connection creation opens the inline Connections editor in the reusable
 Settings window, preserving the originating task for Save and return. Home's
@@ -877,6 +916,11 @@ new sink, persistence, export binding, or renderer logging facility.
 
 ## Configuration boundaries
 
+`internal/settings/request_profiles.go` contains ordinary Go request-profile
+capture and preview validation. These methods remain on the settings owner and
+hold its save lock while resolving settings, managed endpoints, and credentials.
+They do not add a Wails service or a second settings transaction.
+
 Durable settings contain ordinary STT, VAD, shortcut, window, appearance, history, post-processing, and optional speech-playback configuration. STT, stored-file STT, post-processing, and TTS have independent validated request budgets; STT, post-processing, and TTS retain independent runtime models and selections. Selecting the same reusable connection explicitly shares its endpoint, HTTP policy, backend profile, and credential reference; selecting separate connections keeps those identities independent. Stored credentials remain in Windows Credential Manager or macOS Keychain; SQLite contains only their opaque references. Payload and retained-memory ceilings are implementation safety invariants rather than user-tunable settings.
 
 `internal/tts` is deliberately on-demand and provider-neutral. History/file renderer calls identify a backend-retained entry/version or completed stored-file result rather than resending transcript text. Current Voice playback passes only the displayed dictation generation. The dictation owner rejects stale, active, cleared, and closed results, then supplies an immutable text snapshot through the injected `tts.TranscriptSources` collaboration boundary; history retention is not required. The first-class Text to speech workspace is the single deliberate exception: it accepts a bounded user-authored input (4,096 Unicode characters) and does not write that output-oriented content into transcript history. Synthesized bytes never become bridge results. The service captures one coherent TTS settings/credential profile, sends a bounded `/v1/audio/speech` WAV request, validates PCM before native playback, and emits only typed scalar status/progress. The ordinary connection service may discover speech model IDs with authenticated `GET /v1/models` metadata. Generic has no portable voice-list operation; qualified speech profiles add metadata-only voice discovery, and model profiles may restrict selectable voices. One in-memory playback session owns pause/resume/restart/stop/save/clear. Replay reads the retained PCM without another request; Save reconstructs a canonical PCM16 WAV and writes only to a native-dialog destination; Clear zeroes and releases the session. A new request replaces it, recording preempts and releases it before capture, native progress follows audible time rather than output-buffer submission, and shutdown cancels generation immediately and serializes native output teardown within the service wait budget described below.
@@ -990,6 +1034,12 @@ An active operation observes one coherent request profile. The transactional set
 
 ## Audio contract
 
+`internal/filetranscription/audio_file.go` owns the private selected-file
+capability, size/type checks, and identity revalidation before opening. The file
+service retains selection and job lifetime. Completed Voice and file responses
+share JSON and safe metadata decoding in `internal/inference/transcription_response.go`;
+each caller retains its response limit, transport errors, and final-text checks.
+
 The capture adapter may receive the Windows mix format, commonly 48 kHz float/stereo. Before upload, the client produces a bounded WAV payload with explicit format metadata. The initial target is mono signed 16-bit PCM at 16 kHz.
 
 Each recording also owns a bounded, non-blocking interruption signal from the native stop callback. The callback never tears down audio or enters UI/state-machine code. Dictation fences that signal by recording generation, cancels the recording-only timer, discards partial PCM, and releases the device before publishing failure. System-default capture keeps miniaudio's shared-mode WASAPI rerouting; an explicit device is never silently replaced.
@@ -1056,7 +1106,7 @@ History never contains a URL path supplied by the user, target-window identity, 
 - Tray Quit cancels active work, unregisters hooks/hotkeys, stops capture, and exits.
 - Tray Quit clears the optional in-memory transcript ring before process exit.
 - Automatic startup uses an app-owned HKCU entry on Windows and an ownership-checked per-user LaunchAgent referencing the exact bundle executable on macOS. Neither requires elevation.
-- Automatic release checks are opt-out, quiet metadata reads scheduled by `internal/updates`; Wails owns GitHub release comparison, checksum verification, its review window, download, executable staging, and restart. The service stops polling and rejects new checks during shutdown.
+- Automatic release checks are opt-out, quiet metadata reads scheduled by `internal/updates`; Wails owns GitHub release comparison, checksum verification, its review window, download, executable staging, and restart. The service owns a fixed initial delay and daily interval, exercised in virtual time without test-only constructor options. It stops polling and rejects new checks during shutdown.
 - Services that own asynchronous work retain a child of Wails' application context themselves. Live `StopRecording` owns only the serialized native capture-stop transition; it then submits exactly one generation-scoped completion to the dictation service's single managed worker, which owns transcription, post-processing, history finalization, and insertion. Renderer, toggle, hold-release, duration-limit, and automatic-silence callers therefore share status events as their outcome contract instead of blocking a bridge or native callback on inference. Shutdown atomically stops admission and cancels the service root before waiting for native or workflow locks. Dictation and stored-file transcription each allow five seconds for the complete teardown; speech allows two seconds. These are per-service wait budgets, not a global process-exit guarantee. Wails closes shortcut capture before the dictation/audio owner. Native capture has a closed-state fence before and after device preparation so a late warmup cannot recreate resources.
 
 ### Shutdown and audio export ownership

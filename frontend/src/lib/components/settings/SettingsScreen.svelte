@@ -1,4 +1,5 @@
 <script lang="ts">
+  import StatusBadge from "$lib/components/common/StatusBadge.svelte";
   import { SETTINGS_NAVIGATION } from "$lib/navigation";
   import LocalRuntimeSection from "./sections/LocalRuntimeSection.svelte";
   import VocabularySection from "./sections/VocabularySection.svelte";
@@ -7,7 +8,7 @@
     SETTINGS_VALIDATION,
     type SettingsValidationContext,
   } from "$lib/utils/settingsValidation";
-  import * as Dialog from "$lib/components/ui/dialog";
+  import PendingChangesDialog from "./PendingChangesDialog.svelte";
   import * as WindowingService from "$bindings/windowing/service";
   import SavedConnectionPicker from "$lib/components/settings/SavedConnectionPicker.svelte";
   import { Purpose } from "$bindings/savedconnection";
@@ -31,7 +32,6 @@
   import { State, FileTranscriptionPhase } from "$lib/state";
   import type { Message } from "$lib/utils/messages";
   import { shortcutCapture } from "$lib/stores/shortcutCapture.svelte";
-  import { cn } from "$lib/utils";
 
   let {
     session = $bindable(),
@@ -159,10 +159,6 @@
   });
 
   let pendingConnectionAction = $state<(() => void) | null>(null);
-  function preventDismissWhileSaving(event: Event) {
-    // onOpenChange observes a close; these hooks can prevent it.
-    if (session.editor.saving) event.preventDefault();
-  }
   function withSavedSettings(action: () => void) {
     if (session.editor.saving) return;
     if (session.editor.runtimeDirty) pendingConnectionAction = action;
@@ -270,20 +266,20 @@
     >
       <section
         aria-labelledby="settings-section-title"
-        class="@container mx-auto flex w-full max-w-[820px] flex-col gap-5"
+        class="@container mx-auto flex w-full max-w-[820px] flex-col gap-4"
       >
         <div
           bind:clientHeight={headingHeight}
-          class="sticky top-0 z-10 space-y-2 bg-background py-6"
+          class="sticky top-0 z-10 space-y-1.5 border-b border-hairline bg-background pb-4 pt-5"
         >
           <h3
             id="settings-page-heading"
             tabindex="-1"
-            class="font-display text-[26px] font-medium tracking-tight"
+            class="font-display text-[26px] font-bold tracking-tight"
           >
             {section.label}
           </h3>
-          <p class="max-w-xl text-[13px] leading-relaxed text-muted-foreground">
+          <p class="max-w-xl text-sm leading-5 text-muted-foreground">
             {section.blurb}
           </p>
         </div>
@@ -555,26 +551,24 @@
     </div>
 
     <div
-      class="flex min-h-[64px] shrink-0 flex-wrap items-center justify-end gap-2.5 border-t border-hairline bg-background px-6 py-3"
+      class="flex min-h-14 shrink-0 flex-wrap items-center justify-end gap-2.5 border-t border-border bg-card px-6 py-3"
     >
       {#if session.editor.draft}
         <span
-          class="figure mr-auto flex items-center gap-2 text-[10.5px] text-muted-foreground"
+          class="figure mr-auto flex items-center gap-2 text-xs font-medium text-muted-foreground"
           aria-live="polite"
           aria-atomic="true"
         >
-          <span
-            class={cn(
-              "size-1.5 rounded-full",
-              dirty || session.editor.saving ? "bg-primary" : "bg-success",
-            )}
-            aria-hidden="true"
-          ></span>
-          {session.editor.saving
-            ? "Saving changes…"
-            : dirty
-              ? "Unsaved changes"
-              : "All changes saved"}
+          <StatusBadge
+            tone={dirty || session.editor.saving ? "accent" : "success"}
+            dot
+          >
+            {session.editor.saving
+              ? "Saving changes…"
+              : dirty
+                ? "Unsaved changes"
+                : "All changes saved"}
+          </StatusBadge>
         </span>
         {#if session.editor.runtimeDirty && active !== "connections"}
           <Button
@@ -613,42 +607,16 @@
   </div>
 </div>
 
-<Dialog.Root
+<PendingChangesDialog
   open={pendingConnectionAction !== null}
-  onOpenChange={(open) => {
-    if (!open && !session.editor.saving) pendingConnectionAction = null;
-  }}
->
-  <Dialog.Content
-    showCloseButton={!session.editor.saving}
-    onEscapeKeydown={preventDismissWhileSaving}
-    onInteractOutside={preventDismissWhileSaving}
-  >
-    <Dialog.Header>
-      <Dialog.Title>Save settings before continuing?</Dialog.Title>
-      <Dialog.Description
-        >Your model and task edits have not been applied. Save them for the
-        current connection, or discard them before continuing.</Dialog.Description
-      >
-    </Dialog.Header>
-    {#if session.messages.error}<p role="alert" class="text-destructive">
-        {session.messages.error}
-      </p>{/if}
-    <Dialog.Footer>
-      <Button
-        variant="outline"
-        disabled={session.editor.saving}
-        onclick={() => (pendingConnectionAction = null)}>Keep editing</Button
-      >
-      <Button
-        variant="secondary"
-        disabled={session.editor.saving}
-        onclick={() => continueConnection(false)}>Discard and continue</Button
-      >
-      <Button
-        disabled={session.editor.saving}
-        onclick={() => continueConnection(true)}>Save and continue</Button
-      >
-    </Dialog.Footer>
-  </Dialog.Content>
-</Dialog.Root>
+  busy={session.editor.saving}
+  title="Save settings before continuing?"
+  description="Your model and task edits have not been applied. Save them for the current connection, or discard them before continuing."
+  error={session.messages.error}
+  discardLabel="Discard and continue"
+  discardVariant="secondary"
+  saveLabel="Save and continue"
+  onKeepEditing={() => (pendingConnectionAction = null)}
+  onDiscard={() => continueConnection(false)}
+  onSave={() => continueConnection(true)}
+/>

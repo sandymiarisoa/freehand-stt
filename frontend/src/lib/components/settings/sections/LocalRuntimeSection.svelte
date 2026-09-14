@@ -5,29 +5,23 @@
     type ProviderDescriptor,
     type BinaryOptions,
   } from "$bindings/managedruntime";
+  import StatusBadge from "$lib/components/common/StatusBadge.svelte";
   import ProviderIcon from "$lib/components/ProviderIcon.svelte";
   import RuntimeDownloadSource from "$lib/components/settings/RuntimeDownloadSource.svelte";
   import ModelDownloadSource from "$lib/components/settings/ModelDownloadSource.svelte";
 
-  import {
-    backendLabel,
-    modelSize,
-    runtimePresentation,
-  } from "$lib/utils/managedRuntime";
+  import { backendLabel, runtimePresentation } from "$lib/utils/managedRuntime";
   import { Button } from "$lib/components/ui/button";
-  import CheckIcon from "@lucide/svelte/icons/check";
 
-  import { Switch } from "$lib/components/ui/switch";
   import * as Dialog from "$lib/components/ui/dialog";
 
   import DownloadIcon from "@lucide/svelte/icons/download";
   import PlayIcon from "@lucide/svelte/icons/play";
   import SquareIcon from "@lucide/svelte/icons/square";
-  import RefreshIcon from "@lucide/svelte/icons/refresh-cw";
   import LoaderCircleIcon from "@lucide/svelte/icons/loader-circle";
   import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
 
-  import TrashIcon from "@lucide/svelte/icons/trash-2";
+  import LocalRuntimeDetails from "./LocalRuntimeDetails.svelte";
 
   let {
     runtime,
@@ -77,17 +71,10 @@
   const id = $derived(row?.instance.id ?? provider?.id ?? "");
   const status = $derived(row?.status);
   const view = $derived(runtimePresentation(status, now));
-  const models = $derived(
-    (status?.models?.length ? status.models : (provider?.models ?? [])).filter(
-      (m) => provider?.models?.some((q) => q.id === m.id),
-    ),
-  );
-
   const operating = $derived(runtime.isBusy(id));
   const locked = $derived(
     disabled || workBusy || runtime.loading || operating || !status?.supported,
   );
-  const running = $derived(status?.state === "running");
   function switchableProvider(providerID: ProviderID) {
     return (
       providerID === ProviderID.LlamaCPP || providerID === ProviderID.WhisperCPP
@@ -175,7 +162,7 @@
   }
 </script>
 
-<div class="@container/runtime flex min-w-0 flex-col gap-5">
+<div class="@container/runtime flex min-w-0 flex-col gap-4">
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div>
       <h2 class="text-base font-semibold">Managed runtimes</h2>
@@ -184,13 +171,13 @@
       </p>
     </div>
     <div class="flex items-center gap-1">
-      <Button variant="ghost" size="sm" onclick={onConnections}
+      <Button variant="soft" size="sm" onclick={onConnections}
         >Manage connections</Button
       >
     </div>
   </div>
   {#if runtime.providers.length}
-    <div class="divide-y divide-hairline" aria-label="Runtime inventory">
+    <div class="space-y-3" aria-label="Runtime inventory">
       {#each runtime.providers as entry (entry.id)}
         {@const item =
           selectedID === entry.id
@@ -211,51 +198,62 @@
         {@const itemModel = item?.status.models?.find(
           (model) => model.id === item.instance.model,
         )}
-        <div class="py-4">
+        <div
+          class={`rounded-xl border p-3 ${expanded ? "border-accent-edge bg-card" : "border-hairline bg-card"}`}
+        >
           <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="min-w-0 flex-1">
-              <h3 class="flex items-center gap-2 text-sm font-semibold">
-                <ProviderIcon profile={entry.id} size={24} />{entry.name}
-              </h3>
-              <p
-                class="mt-2 flex items-center gap-2 text-[13px] text-secondary-foreground"
+            <div class="flex min-w-0 flex-[1_1_15rem] items-center gap-3">
+              <span
+                class={`flex size-10 shrink-0 items-center justify-center rounded-lg border ${expanded ? "border-accent-edge bg-accent-wash" : "border-hairline bg-background"}`}
               >
-                {#if itemBusy}<LoaderCircleIcon
-                    class="size-3 shrink-0 animate-spin text-primary motion-reduce:animate-none"
-                  />
-                {:else}<span
-                    class={`size-1.5 shrink-0 rounded-full ${item?.status.state === "running" ? "bg-success" : item?.status.state === "error" ? "bg-destructive" : "bg-secondary-foreground"}`}
-                    aria-hidden="true"
-                  ></span>{/if}
-                <span
-                  class={item?.status.state === "running"
-                    ? "font-medium text-success"
-                    : item?.status.state === "error"
-                      ? "text-destructive"
-                      : itemBusy
-                        ? "text-primary"
-                        : ""}
+                <ProviderIcon profile={entry.id} size={24} />
+              </span>
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <h3 class="text-sm font-semibold">{entry.name}</h3>
+                  <StatusBadge
+                    tone={!entry.supported
+                      ? "warning"
+                      : item?.status.state === "running"
+                        ? "success"
+                        : item?.status.state === "error"
+                          ? "danger"
+                          : itemBusy
+                            ? "accent"
+                            : "neutral"}
+                    dot={!itemBusy}
+                  >
+                    <span class="inline-flex items-center gap-1.5"
+                      >{#if itemBusy}<LoaderCircleIcon
+                          class="size-3 animate-spin motion-reduce:animate-none"
+                        />{/if}
+                      {!entry.supported
+                        ? "Unavailable"
+                        : item
+                          ? presentation.label
+                          : "Not installed"}</span
+                    >
+                  </StatusBadge>
+                </div>
+                <p
+                  class={`mt-1 text-xs text-secondary-foreground ${presentation.startup || !entry.supported ? "break-words" : "truncate"}`}
+                  title={!entry.supported
+                    ? entry.unavailableReason
+                    : presentation.startup || itemModel?.name}
                 >
                   {!entry.supported
                     ? entry.unavailableReason || "Unavailable on this platform"
-                    : item
-                      ? presentation.startup || presentation.label
-                      : "Not installed"}
-                </span>
-                {#if !expanded && itemModel}
-                  <span class="min-w-0 truncate">
-                    · {itemModel.name}{switchableProvider(entry.id) &&
-                    item?.status.backend
-                      ? ` · ${backendLabel(item.status.backend)} binary`
-                      : ""}
-                  </span>
-                {/if}
-              </p>
+                    : presentation.startup ||
+                      (itemModel
+                        ? `${itemModel.name}${switchableProvider(entry.id) && item?.status.backend ? ` · ${backendLabel(item.status.backend)} binary` : ""}`
+                        : "Install a runtime, then download a model.")}
+                </p>
+              </div>
             </div>
-            <div class="ml-auto flex items-center gap-2">
+            <div class="ml-auto flex shrink-0 items-center gap-2">
               {#if !presentation.installed && !runtime.isBusy(item?.instance.id ?? entry.id)}
                 <Button
-                  variant="outline"
+                  variant="soft"
                   size="sm"
                   disabled={disabled ||
                     workBusy ||
@@ -281,7 +279,7 @@
                 {:else if presentation.installed}
                   {#if item.status.state === "running"}
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
                       disabled={itemLocked}
                       onclick={() =>
@@ -329,14 +327,14 @@
               {/if}
               {#if item}
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
                   onclick={() => void runtime.openOutput(itemID)}
                   >View output</Button
                 >
               {/if}
               <Button
-                variant="ghost"
+                variant={expanded ? "soft" : "ghost"}
                 size="icon-sm"
                 aria-label="Manage"
                 title={expanded
@@ -383,7 +381,7 @@
             {/if}
           </div>
           {#if entry.source && (expanded || !item)}
-            <div class="mt-3">
+            <div class="mt-3 border-t border-hairline pt-3">
               <RuntimeDownloadSource
                 source={entry.source}
                 backend={recommendation?.provider === entry.id
@@ -476,7 +474,10 @@
           {/if}
           {#if row && status && selectedID === entry.id}
             {#if providerRows.length > 1}
-              <div class="space-y-2 py-3" role="status">
+              <div
+                class="my-3 space-y-2 rounded-lg border border-warning/30 bg-warning/10 p-3"
+                role="status"
+              >
                 <p class="text-sm text-secondary-foreground">
                   Multiple saved installations need review. Keep one; remove
                   unwanted files and reassign their Connections before deleting
@@ -497,326 +498,38 @@
                 </div>
               </div>
             {/if}
-            <div id={`${uid}-${entry.id}-details`} class="mt-5 space-y-5">
-              <section class="space-y-3" aria-label="Runtime setup">
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                  <h4 class="text-sm font-semibold">Runtime binary</h4>
-                  <span class="text-xs text-secondary-foreground">
-                    {status.version || provider?.version || "Not installed"}
-                    {#if status.backend && !switchableProvider(entry.id)}
-                      · {backendLabel(status.backend)}{/if}
-                  </span>
-                </div>
-                {#if switchableProvider(entry.id) && status.supported && status.backend}
-                  <fieldset disabled={locked || running}>
-                    <legend class="sr-only">Runtime binary</legend>
-                    <div class="flex flex-wrap items-center gap-2">
-                      {#each entry.backends ?? [] as backend (backend)}
-                        <Button
-                          variant="outline"
-                          class={status.backend === backend
-                            ? "border-primary/50 bg-accent-wash text-primary disabled:opacity-100"
-                            : ""}
-                          size="sm"
-                          aria-pressed={status.backend === backend}
-                          disabled={locked ||
-                            running ||
-                            status.backend === backend}
-                          onclick={() => {
-                            if (!running)
-                              act(() => runtime.installBackend(id, backend));
-                          }}>{backendLabel(backend)}</Button
-                        >
-                      {/each}
-                      {#if running}<span
-                          class="text-xs text-secondary-foreground"
-                          >Stop to change binary.</span
-                        >{/if}
-                    </div>
-                  </fieldset>
-                  <details class="text-xs text-secondary-foreground">
-                    <summary
-                      class="w-fit cursor-pointer rounded-sm py-1 font-medium text-primary focus-visible:outline-ring"
-                      >Compatibility &amp; switching</summary
-                    >
-                    <p class="mt-2 max-w-prose leading-relaxed">
-                      Switching keeps downloaded models and saved Connections.
-                      Existing installations are never changed automatically.
-                      {#if entry.backends?.includes("metal")}
-                        Metal uses the Apple Silicon GPU and shares memory with
-                        NeMo and other apps. Choose CPU to disable GPU offload.
-                      {:else if entry.backends?.includes("cuda")}
-                        CUDA 12.4 requires an NVIDIA GPU with compute capability
-                        5.0+ and driver 551.78 or newer. It may share GPU memory
-                        with NeMo or other apps.
-                      {/if}
-                    </p>
-                  </details>
-                {/if}
-                {#if operating && !view.startup && (status.operation?.kind !== "download" || status.operation.model === row.instance.model)}<div
-                    class="mt-3"
-                    role="status"
-                  >
-                    <p class="text-xs text-secondary-foreground">
-                      {view.operationModel || view.activity}{view.percent !==
-                      null
-                        ? ` · ${view.percent}%`
-                        : ""}
-                    </p>
-                    {#if view.transferred}<p
-                        class="mt-1 text-xs tabular-nums text-secondary-foreground"
-                      >
-                        {view.transferred}
-                      </p>{/if}
-                    {#if view.percent !== null}
-                      <progress
-                        class="mt-2 h-1.5 w-full accent-primary"
-                        max="100"
-                        value={view.percent}
-                        aria-label="Runtime operation progress"
-                      ></progress>
-                    {:else}
-                      <LoaderCircleIcon
-                        class="mt-2 size-4 animate-spin motion-reduce:animate-none text-secondary-foreground"
-                        aria-label={view.activity}
-                      />
-                    {/if}
-                  </div>{/if}
-                {#if !operating && view.completion && !(status.operation?.outcome === "succeeded" && ["start", "startup", "stop"].includes(status.operation.kind))}<p
-                    class="mt-3 text-sm"
-                    role="status"
-                  >
-                    {view.operationModel
-                      ? `${view.operationModel}: `
-                      : ""}{view.completion}
-                  </p>{/if}
-              </section>
-              <section
-                class="space-y-3 border-t border-hairline pt-5"
-                aria-label="Model catalog"
-              >
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h4 class="text-sm font-semibold">Models</h4>
-                    <p class="mt-1 text-xs text-secondary-foreground">
-                      Browsing is metadata-only. Only Download fetches model
-                      files.
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={locked || !view.installed}
-                    onclick={() => act(() => runtime.run(id, "RefreshCatalog"))}
-                    ><RefreshIcon class="size-3.5" />Refresh catalog</Button
-                  >
-                </div>
-                {#if running}<p class="text-xs text-secondary-foreground">
-                    Stop to download or change models.
-                  </p>{/if}
-                {#each models as model (model.id)}
-                  {@const source =
-                    entry.models?.find((candidate) => candidate.id === model.id)
-                      ?.source ?? model.source}
-                  {@const downloading =
-                    status.operation?.kind === "download" &&
-                    status.operation.model === model.id}
-                  <article
-                    class="border-b border-hairline py-3 last:border-b-0"
-                    aria-label={model.name}
-                  >
-                    <div
-                      class="flex flex-wrap items-start justify-between gap-3"
-                    >
-                      <div class="min-w-0 flex-[1_1_12rem]">
-                        <h5
-                          class="text-sm font-semibold"
-                          title={model.description}
-                        >
-                          {model.name}
-                        </h5>
-                        <p class="mt-1.5 text-[13px] text-secondary-foreground">
-                          {model.description}
-                        </p>
-                        <p class="mt-1 text-xs text-secondary-foreground">
-                          {modelSize(model.sizeBytes)}
-                          {#if model.installed}<span class="text-success">
-                              · Downloaded</span
-                            >{/if}
-                          {#if model.recommended}
-                            · Recommended{/if}
-                        </p>
-                      </div>
-                      <div class="flex flex-wrap gap-1">
-                        {#if model.id === row.instance.model}
-                          <span
-                            class="inline-flex h-8 items-center gap-1.5 px-2 text-xs font-medium text-primary"
-                            ><CheckIcon class="size-3.5" />Selected</span
-                          >
-                        {:else}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={locked || running}
-                            onclick={() =>
-                              act(() =>
-                                runtime.saveInstance({
-                                  ...row.instance,
-                                  model: model.id,
-                                }),
-                              )}>Select model</Button
-                          >
-                        {/if}
-                        {#if downloading && operating}<Button
-                            variant="outline"
-                            size="sm"
-                            disabled={disabled ||
-                              runtime.pendingFor(id) === "Cancelling"}
-                            onclick={() => void runtime.cancel(id)}
-                            >Cancel</Button
-                          >{:else if model.installed}<Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`Delete ${model.name}`}
-                            title="Delete model"
-                            disabled={locked || running}
-                            onclick={() => {
-                              confirmation = {
-                                instanceID: id,
-                                kind: "model",
-                                model: model.id,
-                                name: model.name,
-                              };
-                            }}><TrashIcon class="size-3.5" /></Button
-                          >{:else}<Button
-                            variant="outline"
-                            size="sm"
-                            disabled={locked || running || !view.installed}
-                            onclick={() =>
-                              act(() => runtime.downloadModel(id, model.id))}
-                            ><DownloadIcon class="size-3.5" />Download</Button
-                          >{/if}
-                      </div>
-                    </div>
-                    {#if source}<div class="mt-2">
-                        <ModelDownloadSource {source} />
-                      </div>{/if}
-                    {#if downloading}
-                      <div class="mt-3 space-y-1" role="status">
-                        {#if operating}
-                          <p class="text-xs text-secondary-foreground">
-                            {runtime.pendingFor(id) ||
-                              view.activity}{view.percent !== null
-                              ? ` · ${view.percent}%`
-                              : ""}
-                          </p>
-                          {#if view.transferred}<p
-                              class="text-xs tabular-nums text-secondary-foreground"
-                            >
-                              {view.transferred}
-                            </p>{/if}
-                          {#if view.percent !== null}
-                            <progress
-                              class="h-1.5 w-full accent-primary"
-                              max="100"
-                              value={view.percent}
-                              aria-label={`${model.name} download progress`}
-                            ></progress>
-                          {:else}
-                            <LoaderCircleIcon
-                              class="size-4 animate-spin motion-reduce:animate-none text-secondary-foreground"
-                              aria-label={view.activity}
-                            />
-                          {/if}
-                        {:else if view.completion}
-                          <p class="text-sm">{view.completion}</p>
-                          {#if status.operation.error}<p
-                              class="text-xs text-destructive"
-                            >
-                              {status.operation.error}
-                            </p>{/if}
-                        {/if}
-                      </div>
-                    {/if}
-                  </article>
-                {/each}
-                {#if !models.length}<p
-                    class="text-sm text-secondary-foreground"
-                  >
-                    Install the runtime, then refresh its qualified model
-                    catalog.
-                  </p>{/if}
-              </section>
-              <details class="border-t border-hairline pt-4">
-                <summary class="cursor-pointer text-sm font-medium"
-                  >Runtime preferences</summary
-                >
-                <div class="mt-4 space-y-4">
-                  <div class="space-y-1 text-xs text-secondary-foreground">
-                    <p class="break-all">
-                      Active API model: {row.activeModel || "None"}
-                    </p>
-                    {#if row.activeModel && row.activeModel !== row.instance.model}
-                      <p>
-                        The API model identity differs from the selected catalog
-                        key.
-                      </p>
-                    {/if}
-                    <p>
-                      Stopping or removing files keeps saved Connections
-                      selected; there is no automatic fallback.
-                    </p>
-                  </div>
-                  <div class="flex items-center justify-between gap-3">
-                    <div>
-                      <label
-                        for={`${uid}-autostart`}
-                        class="text-sm font-medium"
-                        >Start when Freehand launches</label
-                      >
-                      <p class="mt-1 text-xs text-secondary-foreground">
-                        Uses this runtime’s selected model. Does not download
-                        missing files.
-                      </p>
-                    </div>
-                    <Switch
-                      id={`${uid}-autostart`}
-                      checked={row.instance.autoStart}
-                      disabled={locked}
-                      onCheckedChange={(autoStart) =>
-                        act(() =>
-                          runtime.saveInstance({ ...row.instance, autoStart }),
-                        )}
-                    />
-                  </div>
-                  <div class="flex flex-wrap gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={locked || !view.installed}
-                      onclick={() => {
-                        confirmation = {
-                          instanceID: id,
-                          kind: "files",
-                          name: row.instance.name,
-                        };
-                      }}>Remove runtime files</Button
-                    >{#if providerRows.length > 1}<Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={locked}
-                        onclick={() => {
-                          confirmation = {
-                            instanceID: id,
-                            kind: "instance",
-                            name: row.instance.name,
-                          };
-                        }}
-                        ><TrashIcon class="size-3.5" />Delete duplicate entry</Button
-                      >{/if}
-                  </div>
-                </div>
-              </details>
+            <div
+              id={`${uid}-${entry.id}-details`}
+              class="mt-4 space-y-4 border-t border-hairline pt-4"
+            >
+              <LocalRuntimeDetails
+                {runtime}
+                {row}
+                {entry}
+                {view}
+                {uid}
+                {locked}
+                {operating}
+                {disabled}
+                switchable={switchableProvider(entry.id)}
+                hasDuplicates={providerRows.length > 1}
+                {act}
+                onRemove={(kind) => {
+                  confirmation = {
+                    instanceID: id,
+                    kind,
+                    name: row.instance.name,
+                  };
+                }}
+                onRemoveModel={(model) => {
+                  confirmation = {
+                    instanceID: id,
+                    kind: "model",
+                    model: model.id,
+                    name: model.name,
+                  };
+                }}
+              />
             </div>
           {/if}
         </div>
@@ -834,7 +547,7 @@
     </p>{/if}
   <div>
     <Button
-      variant="ghost"
+      variant="outline"
       size="sm"
       disabled={runtime.loading}
       onclick={() => void runtime.load()}>Refresh inventory</Button

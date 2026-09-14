@@ -3,12 +3,62 @@ title: Testing contract
 description: Deterministic, integration, and native acceptance responsibilities.
 ---
 
+## Choosing useful coverage
+
+Test observable outcomes at the owning boundary: admitted requests, immutable
+settings, persisted data, emitted status, rendered controls, and actions a user
+can perform. Cover failure, cancellation, and out-of-order completion where they
+can change those outcomes. Small mechanical refactors do not need new tests that
+repeat their implementation.
+
+Avoid assertions about source spelling, prop forwarding, private helper names,
+or incidental markup counts. Exercise state owners directly, render static
+presentation, and use browser tests for component wiring, interaction, and the
+accessibility tree. When removing a brittle test, identify the behavior coverage
+that replaces it or explain why the asserted detail is not a contract. Preserve
+string assertions for actual protocol values, safety-relevant copy, generated
+artifacts, and release configuration; reading a file is not itself a test smell.
+
+Use controlled promises or channels for asynchronous results and Go's
+[`testing/synctest`](https://pkg.go.dev/testing/synctest) for timer-driven owners.
+Updater tests advance the production schedule in virtual time and exercise
+disabling updates during a pending result. These checker fixtures do not qualify
+the native Wails updater window or its shutdown behavior. Window option tests
+cover renderer permissions across surfaces; retained-instance tests check reuse
+without claiming native close, focus, or startup acceptance.
+
+## Renderer state and navigation
+
+Exercise dictation events and overlapping status reads in both completion orders.
+Older generations must not replace newer state, refresh history, or emit result
+notifications. Same-generation completion, rejection, and clear events remain
+valid, and a newer generation must not be lost behind a slower snapshot read.
+Settings metadata tests cover the single confirmed-snapshot invalidation path,
+including changes to credentials that do not alter renderer-visible settings.
+
+Suspend session initialization at each stage, dispose the session, then resolve
+or reject the outstanding request. No subsequent initialization or session-level
+failure reporting may start. Real App mount/unmount browser fixtures also reject
+late metadata and readiness replies, verifying that teardown prevents a new
+`ShellReady` call and late error notices.
+
+The shared pending-changes dialog must preserve each parent's labels, errors,
+and navigation actions. Browser checks keep the dialog open during a pending
+save despite Escape or outside interaction, then allow recovery after failure.
+Compare completed transcription metadata fixtures through both microphone and
+file clients while retaining their separate response limits and text admission.
+
 ## Managed desktop runtimes
 
 Keep managed-runtime tests isolated from the user's application-data directory.
 Use small synthetic archives, fake HTTP listeners, and disposable child
 executables for deterministic checks; these fixtures are not official NeMo
 runtime or model qualification.
+
+Exercise the shared archive downloader through both the single-archive and
+bundle installers. Failed HTTP status, mismatched declared length, short or
+oversized unknown-length bodies, checksum mismatch, and cancellation must leave
+no published runtime or staging directory.
 
 Coverage must include archive checksum failure, path traversal, cancellation,
 interrupted install/retry, bounded child output, metadata-only catalog filtering,
@@ -136,6 +186,11 @@ row, checking that details stay collapsed and dirty drafts still guard mutations
 Exercise keyboard navigation, narrow layouts, light/dark appearance, and reduced
 motion. Generated Wails DTOs remain the fixture contract.
 
+The `managed-runtime` and `runtime-sources` browser suites cover the composed
+runtime section, including its setup/preferences and model-catalog components.
+Keep assertions at the visible controls and runtime commands so component
+extraction preserves confirmation, cancellation, and metadata-only browsing.
+
 Native acceptance uses only the explicitly selected model. Check installation
 from an official verified archive, NeMo's model pull, a real ready listener,
 realtime microphone finals, completed files, Stop/Start, Quit during a model
@@ -198,6 +253,11 @@ startup, rendering, clipboard, and selected-model inference observations:
   colors and carriage-return progress, local search, resize, selection/copy admission,
   follow/pause scrolling, Clear, close/reopen, and sparse upstream output. Use bounded
   synthetic output; viewer interactions must never send input or change process lifetime.
+
+`process-output.spec.ts` checks both themes at wide and narrow widths, stable
+consent geometry, terminal content fitting its viewport, and actual clicks on
+search and Follow controls. Searching forward and backward to the same match
+must leave Copy enabled when the terminal still has a selection.
 
 For native Windows acceptance, use only a user-selected model to measure startup
 and first/subsequent request behavior, confirm actual GPU preparation and CPU
@@ -533,6 +593,10 @@ generating bindings and installing frontend dependencies. This uses the standard
 `frontend/playwright.config.ts` owns the browser, viewport, test server lifecycle,
 and failure reports; `frontend/tests/browser/vite.config.ts` serves the fixture without
 the native Wails bridge. Vitest excludes the browser specs.
+For HTML injected by a browser test, import shared Svelte and singleton state
+through a fixture module processed by Vite, such as `presentation-runtime.ts`.
+Raw inline imports can otherwise create a second singleton when Vite adds a
+module-version URL to the production component's import.
 
 The browser fixture mounts the actual Settings screen, connection picker, and dialogs
 with the installed Bits UI library. Fake services reuse synthetic DTOs at the Wails
@@ -561,6 +625,18 @@ verify both recording-limit modes, nested validation causes, safe error JSON,
 and rejection before applied settings, credentials, native adapters, or events
 can change. Frontend metadata fixtures distinguish independent STT/TTS outcomes
 and prevent unsaved-draft checks from being attributed to applied settings.
+
+`visual-hierarchy.spec.ts` mounts the actual Settings screen in light and dark
+modes at desktop and narrow widths. It checks enabled primary-action contrast in
+normal and hover states, reachable save actions, horizontal overflow, and
+keyboard access to shortcut rules. `builtin-connections.spec.ts` covers compact
+resource rows, selected-connection semantics, visible runtime controls, and
+expansion into the model catalog; opening these views must issue no runtime
+commands. Their screenshots support visual review rather than replacing
+behavioral assertions. Inspect heading and label hierarchy, readable secondary
+text, status labels, and disclosure focus alongside the existing navigation,
+shortcut-recovery, source-provenance, and managed-runtime interaction suites.
+Keep checks tied to user outcomes rather than exact class names or palette values.
 
 Repeat the audit interactively on Windows before native acceptance: scroll long
 pages and navigate by mouse/keyboard, use connection-editor Back/Cancel, save an
@@ -640,7 +716,14 @@ Check file isolation on both platforms: `settings.db` and `settings.json`
 remain untouched, legacy credentials are never read or deleted, and `freehand.db`
 starts with defaults and no connections. Renamed foreign databases must fail identity
 validation. Temporary Git fixtures reject edits, removal, or renaming of published
-`schema/` migrations, as well as invalid or nontransactional migrations. Check backups,
+`schema/` migrations, new versions below the published maximum, and nontransactional
+annotations in every accepted letter case. Backup tests block source access to
+verify that incomplete copies are never published, cancel that work, and restore
+the completed snapshot after retention ignores temporary and unrelated files.
+Catalog tests fill all four manual allowances alongside the maximum managed
+inventory and reopen it through the real storage owner. Inject native-vault write
+and deletion failures to exercise rollback, deferred cleanup, and cleanup-cap recovery.
+Check backups,
 constraints, lock waits, read-only/full-disk failures, incompatible history, and
 staged credential consistency. Run the storage/settings race tests on Windows;
 CI also checks portable storage fixtures on Linux. Native service fixtures use a
