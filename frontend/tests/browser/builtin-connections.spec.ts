@@ -1,11 +1,16 @@
 import { test, expect } from "./fixtures";
+import { installOutputFixture } from "./runtime-output-fixtures";
+import { openSection } from "./context-navigation";
 
 test("runtime connections have read-only details and navigate to their owners", async ({
   page,
 }) => {
   await page.goto("/tests/browser/app/?runtime&runtime-ready");
-  await page.locator('[data-settings-section="connections"]').click();
-  await page.getByRole("button", { name: /Local speech/ }).click();
+  await openSection(page, "connections");
+  await page
+    .getByRole("navigation", { name: "Saved connections" })
+    .getByRole("button", { name: /Local speech/ })
+    .click();
   const details = page.getByRole("region", {
     name: "Connection details",
     exact: true,
@@ -61,13 +66,14 @@ test("runtime connections have read-only details and navigate to their owners", 
     "Local speech",
   );
   await page
+    .locator('[data-pane="configuration"]')
     .getByRole("button", { name: "Connection details", exact: true })
     .click();
   await details
     .getByRole("button", { name: "Manage runtime", exact: true })
     .click();
   await expect(
-    page.locator('[data-settings-section="local-runtime"]'),
+    page.getByRole("button", { name: "Local runtime", exact: true }),
   ).toHaveAttribute("aria-current", "page");
   await expect(
     page.locator('[aria-label="Runtime inventory"] img'),
@@ -79,8 +85,11 @@ test("new manual connections never offer managed-target creation, while legacy a
   page,
 }) => {
   await page.goto("/tests/browser/app/?runtime&runtime-ready&legacy-runtime");
-  await page.locator('[data-settings-section="connections"]').click();
-  await page.getByRole("button", { name: /Local speech/ }).click();
+  await openSection(page, "connections");
+  await page
+    .getByRole("navigation", { name: "Saved connections" })
+    .getByRole("button", { name: /Local speech/ })
+    .click();
   await expect(page.locator("#connection-name")).toHaveValue("Local speech");
   await expect(page.locator("#connection-instance")).toBeVisible();
   await expect(page.locator("#connection-url")).toHaveCount(0);
@@ -99,10 +108,11 @@ for (const theme of ["dark", "light"] as const) {
   test(`resource views retain visible controls at compact width in ${theme} mode`, async ({
     page,
   }, testInfo) => {
+    await installOutputFixture(page);
     await page.setViewportSize({ width: 860, height: 1000 });
     await page.emulateMedia({ colorScheme: theme });
     await page.goto(`/tests/browser/app/?runtime&runtime-ready&theme=${theme}`);
-    await page.locator('[data-settings-section="connections"]').click();
+    await openSection(page, "connections");
     const connections = page.getByRole("navigation", {
       name: "Saved connections",
     });
@@ -130,22 +140,34 @@ for (const theme of ["dark", "light"] as const) {
     await page
       .getByRole("button", { name: "Manage runtime", exact: true })
       .click();
-    const inventory = page.locator('[aria-label="Runtime inventory"]');
-    await expect(inventory.getByText("Running", { exact: true })).toBeVisible();
     await expect(
-      inventory.getByRole("button", { name: "Stop", exact: true }),
+      page
+        .locator(".workbench-columns > div")
+        .getByText("Running", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Stop", exact: true }),
+    ).toBeInViewport();
+    await page
+      .getByRole("button", { name: "View output", exact: true })
+      .click();
+    await expect(
+      page.getByRole("region", {
+        name: "Read-only process output",
+        exact: true,
+      }),
     ).toBeInViewport();
     await expect(
-      inventory.getByRole("button", { name: "View output", exact: true }),
-    ).toBeInViewport();
+      page.getByRole("region", {
+        name: "Read-only process output",
+        exact: true,
+      }),
+    ).toContainText("Sensitive startup diagnostic");
     await page.screenshot({
       path: testInfo.outputPath(`runtime-list-${theme}.png`),
       fullPage: true,
     });
-    const manage = inventory.getByRole("button", {
-      name: "Manage",
-      exact: true,
-    });
+    const manage = page.getByRole("button", { name: /^Manage runtime/ });
     await manage.click();
     await expect(manage).toHaveAttribute("aria-expanded", "true");
     await expect(

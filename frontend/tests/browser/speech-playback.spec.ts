@@ -1,41 +1,88 @@
 import { test, expect } from "./fixtures";
 import type { Page } from "@playwright/test";
+
+test("speech setup guidance belongs to the editable composer", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 650, height: 740 });
+  await page.goto("/tests/browser/app/?main&setup-ready");
+  await page
+    .getByRole("button", { name: "Text to speech", exact: true })
+    .click();
+  const panel = page.getByRole("region", {
+    name: "Speech composer",
+    exact: true,
+  });
+  const text = panel.getByRole("textbox", {
+    name: "Text to speak",
+    exact: true,
+  });
+  await expect(text).toBeEditable();
+  await expect(text).toHaveAccessibleDescription(
+    /Choose a connection, model, and voice in speech settings/,
+  );
+  await text.fill("Keep this draft while configuring speech.");
+  await expect(
+    panel.getByRole("button", { name: "Configure speech", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    panel.getByRole("button", { name: "Speak", exact: true }),
+  ).toBeDisabled();
+  await expect(panel.locator('[aria-label="Generated audio"]')).toHaveCount(0);
+  await text.press("Control+Enter");
+  await expect(text).toHaveValue("Keep this draft while configuring speech.");
+});
+
 async function composer(page: Page, theme = "dark") {
   await page.goto(`/tests/browser/app/?view=workspace&theme=${theme}&playback`);
-  await page.getByRole("tab", { name: "Text to speech", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Text to speech", exact: true })
+    .click();
   return page.getByRole("textbox", { name: "Text to speak", exact: true });
 }
 async function playing(page: Page, theme = "dark") {
   const text = await composer(page, theme);
   await text.fill("A short synthetic playback example.");
   await text.press("Control+Enter");
-  await page.getByRole("button", { name: "Finish generation", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Finish generation", exact: true })
+    .click();
   return page.getByRole("slider", { name: "Playback position", exact: true });
 }
 
 for (const theme of ["dark", "light"]) {
-  test(`transcript playback shares the surrounding panel styles in ${theme} mode`, async ({
+  test(`transcript playback shares the capture control styles in ${theme} mode`, async ({
     page,
   }, info) => {
     await playing(page, theme);
-    await page.getByRole("button", { name: "Show transcript playback", exact: true }).click();
-    await page.getByRole("tab", { name: "Voice", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Show transcript playback", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Voice transcription", exact: true })
+      .click();
     const bar = page.locator('[aria-label="Speech playback"]');
-    // The result's outer frame owns its surface, stroke and corner geometry.
-    const result = page.getByRole("region", { name: "Current result", exact: true }).locator("..");
+    const capture = page.getByRole("region", {
+      name: "Voice capture",
+      exact: true,
+    });
     const surface = (element: Element) => {
       const css = getComputedStyle(element);
       return {
         background: css.backgroundColor,
-        border: css.borderTopColor,
-        width: css.borderTopWidth,
+        border: css.borderBottomColor,
+        width: css.borderBottomWidth,
         radius: css.borderTopLeftRadius,
       };
     };
     await expect(bar).toBeVisible();
-    expect(await bar.evaluate(surface)).toEqual(await result.evaluate(surface));
-    expect(parseFloat((await bar.evaluate(surface)).radius)).toBeGreaterThan(0);
-    await page.screenshot({ path: info.outputPath(`transcript-playback-${theme}.png`) });
+    expect(await bar.evaluate(surface)).toEqual(
+      await capture.evaluate(surface),
+    );
+    expect(parseFloat((await bar.evaluate(surface)).radius)).toBe(0);
+    await page.screenshot({
+      path: info.outputPath(`transcript-playback-${theme}.png`),
+    });
   });
 }
 for (const width of [560, 1000]) {
@@ -44,32 +91,54 @@ for (const width of [560, 1000]) {
   }, info) => {
     await page.setViewportSize({ width, height: 560 });
     await playing(page);
-    await page.getByRole("button", { name: "Show transcript playback", exact: true }).click();
-    await page.getByRole("tab", { name: "Voice", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Show transcript playback", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Voice transcription", exact: true })
+      .click();
     const bar = page.locator('[aria-label="Speech playback"]');
-    const slider = bar.getByRole("slider", { name: "Playback position", exact: true });
+    const slider = bar.getByRole("slider", {
+      name: "Playback position",
+      exact: true,
+    });
     expect((await bar.boundingBox())!.height).toBeLessThanOrEqual(48);
-    expect((await bar.locator('[data-slot="slider-track"]').boundingBox())!.width).toBeGreaterThan(
-      220,
-    );
+    expect(
+      (await bar.locator('[data-slot="slider-track"]').boundingBox())!.width,
+    ).toBeGreaterThan(220);
     await slider.focus();
     await slider.press("ArrowRight");
     await expect(slider).toHaveAttribute("aria-valuenow", "10100");
-    await bar.getByRole("button", { name: "Pause speech playback", exact: true }).click();
+    await bar
+      .getByRole("button", { name: "Pause speech playback", exact: true })
+      .click();
     await expect(
       bar.getByRole("button", { name: "Resume speech playback", exact: true }),
     ).toBeVisible();
     await expect(
-      bar.getByRole("button", { name: "Stop and release speech playback", exact: true }),
+      bar.getByRole("button", {
+        name: "Stop and release speech playback",
+        exact: true,
+      }),
     ).toBeVisible();
-    await page.screenshot({ path: info.outputPath(`compact-playback-${width}.png`) });
-    const actions = bar.getByRole("button", { name: "Playback actions", exact: true });
+    await page.screenshot({
+      path: info.outputPath(`compact-playback-${width}.png`),
+    });
+    const actions = bar.getByRole("button", {
+      name: "Playback actions",
+      exact: true,
+    });
     await actions.focus();
     await actions.press("Enter");
     await expect(
-      page.getByRole("menuitem", { name: "Restart speech playback", exact: true }),
+      page.getByRole("menuitem", {
+        name: "Restart speech playback",
+        exact: true,
+      }),
     ).toBeVisible();
-    await page.getByRole("menuitem", { name: "Save generated speech", exact: true }).click();
+    await page
+      .getByRole("menuitem", { name: "Save generated speech", exact: true })
+      .click();
     await expect(page.getByRole("menu")).toHaveCount(0);
     await slider.focus();
     await slider.press("End");
@@ -77,9 +146,13 @@ for (const width of [560, 1000]) {
       bar.getByRole("button", { name: "Restart speech playback", exact: true }),
     ).toBeVisible();
     await actions.click();
-    await page.getByRole("menuitem", { name: "Clear generated speech", exact: true }).click();
+    await page
+      .getByRole("menuitem", { name: "Clear generated speech", exact: true })
+      .click();
     await expect(bar).toHaveCount(0);
-    await page.screenshot({ path: info.outputPath(`compact-playback-cleared-${width}.png`) });
+    await page.screenshot({
+      path: info.outputPath(`compact-playback-cleared-${width}.png`),
+    });
   });
 }
 
@@ -99,12 +172,19 @@ for (const width of [560, 1000]) {
     await expect(
       page.getByText("Speech requests: 1; seek requests: 0", { exact: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Finish generation", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Finish generation", exact: true })
+      .click();
     await expect(text).toHaveValue("A draft for the next request.");
     await text.fill("Edited during playback.");
-    const slider = page.getByRole("slider", { name: "Playback position", exact: true });
+    const slider = page.getByRole("slider", {
+      name: "Playback position",
+      exact: true,
+    });
     await expect(slider).toHaveAttribute("aria-valuenow", "10000");
-    await page.getByRole("button", { name: "Pause speech playback", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Pause speech playback", exact: true })
+      .click();
     await expect(text).toBeEditable();
     await page
       .getByRole("region", { name: "Speech composer" })
@@ -120,7 +200,9 @@ for (const width of [560, 1000]) {
     ).toBeEnabled();
     await expect(submitted).toHaveText("The original request.");
     await text.fill("The replacement request.");
-    await expect(page.getByRole("button", { name: "Speak", exact: false })).toBeEnabled();
+    await expect(
+      page.getByRole("button", { name: "Speak", exact: false }),
+    ).toBeEnabled();
     await text.press("Control+Enter");
     await expect(submitted).toHaveText("The replacement request.");
     await expect(
@@ -141,17 +223,28 @@ for (const width of [560, 1000]) {
       page.getByText("Speech requests: 0; seek requests: 0", { exact: true }),
     ).toBeVisible();
     await text.press("Control+Enter");
-    await expect(page.getByText("Text to speech · Creating audio", { exact: true })).toBeVisible();
-    await expect(page.getByText("Audio will play when ready.", { exact: true })).toBeVisible();
-    await expect(page.getByRole("slider", { name: "Playback position", exact: true })).toHaveCount(
-      0,
-    );
+    await expect(
+      page.getByText("Text to speech · Creating audio", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Audio will play when ready.", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("slider", { name: "Playback position", exact: true }),
+    ).toHaveCount(0);
     await expect(page.getByText("0:00 / 0:00", { exact: true })).toHaveCount(0);
     const bar = page.locator('[aria-label="Speech playback"]');
     const generatingBox = await bar.boundingBox();
-    await page.screenshot({ path: info.outputPath(`speech-generating-${width}.png`) });
-    await page.getByRole("button", { name: "Finish generation", exact: true }).click();
-    const slider = page.getByRole("slider", { name: "Playback position", exact: true });
+    await page.screenshot({
+      path: info.outputPath(`speech-generating-${width}.png`),
+    });
+    await page
+      .getByRole("button", { name: "Finish generation", exact: true })
+      .click();
+    const slider = page.getByRole("slider", {
+      name: "Playback position",
+      exact: true,
+    });
     await expect(slider).toBeInViewport();
     expect(await bar.boundingBox()).toEqual(generatingBox);
     await slider.focus();
@@ -163,14 +256,20 @@ for (const width of [560, 1000]) {
     ).toBeVisible();
     await slider.press("End");
     await expect(slider).toHaveAttribute("aria-valuenow", "60000");
-    await expect(page.getByText("Text to speech · Complete", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("Text to speech · Complete", { exact: true }),
+    ).toBeVisible();
     await slider.press("Home");
     await expect(slider).toHaveAttribute("aria-valuenow", "0");
     await expect(
       page.getByRole("button", { name: "Resume speech playback", exact: true }),
     ).toBeVisible();
-    await page.screenshot({ path: info.outputPath(`speech-seeking-${width}.png`) });
-    await page.getByRole("button", { name: "Resume speech playback", exact: true }).click();
+    await page.screenshot({
+      path: info.outputPath(`speech-seeking-${width}.png`),
+    });
+    await page
+      .getByRole("button", { name: "Resume speech playback", exact: true })
+      .click();
     await expect(
       page.getByRole("button", { name: "Pause speech playback", exact: true }),
     ).toBeVisible();
@@ -178,7 +277,9 @@ for (const width of [560, 1000]) {
       page.getByText("Speech requests: 1; seek requests: 3", { exact: true }),
     ).toBeVisible();
     expect(
-      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
     ).toBe(true);
   });
 }
@@ -231,7 +332,12 @@ test("composer shortcut respects empty, oversized, composing and repeated input"
     isComposing: true,
     bubbles: true,
   });
-  await text.dispatchEvent("keydown", { key: "Enter", ctrlKey: true, repeat: true, bubbles: true });
+  await text.dispatchEvent("keydown", {
+    key: "Enter",
+    ctrlKey: true,
+    repeat: true,
+    bubbles: true,
+  });
   await expect(
     page.getByText("Speech requests: 0; seek requests: 0", { exact: true }),
   ).toBeVisible();
@@ -248,17 +354,27 @@ test("the full-width track follows irregular playback updates before and after s
   const bar = page.locator('[aria-label="Speech playback"]');
   const track = bar.locator('[data-slot="slider-track"]');
   const fill = bar.locator('[data-slot="slider-range"]');
-  const advance = page.getByRole("button", { name: "Advance playback", exact: true });
+  const advance = page.getByRole("button", {
+    name: "Advance playback",
+    exact: true,
+  });
   for (const value of [10100, 10300, 10400]) {
     await advance.click();
     await expect(slider).toHaveAttribute("aria-valuenow", String(value));
   }
   const barBox = (await bar.boundingBox())!;
   const trackBox = (await track.boundingBox())!;
-  expect(trackBox.width).toBeGreaterThan(barBox.width - 30);
+  // The timeline spans the dock's content area inside the shared page gutter.
+  expect(trackBox.x - barBox.x).toBeCloseTo(20, 0);
+  expect(barBox.x + barBox.width - trackBox.x - trackBox.width).toBeCloseTo(
+    20,
+    0,
+  );
   expect((await fill.boundingBox())!.height).toBeGreaterThan(0);
   // Click the actual visible track, rather than the larger invisible hit area.
-  await track.click({ position: { x: trackBox.width * 0.75, y: trackBox.height / 2 } });
+  await track.click({
+    position: { x: trackBox.width * 0.75, y: trackBox.height / 2 },
+  });
   const selected = Number(await slider.getAttribute("aria-valuenow"));
   expect(selected).toBeGreaterThan(44000);
   expect(selected).toBeLessThan(46000);
@@ -266,28 +382,36 @@ test("the full-width track follows irregular playback updates before and after s
   await expect(slider).toHaveAttribute("aria-valuenow", String(selected + 100));
   await advance.click();
   await expect(slider).toHaveAttribute("aria-valuenow", String(selected + 300));
-  const { fillBox, thumbBox, currentTrackBox } = await bar.evaluate(async (element) => {
-    const range = element.querySelector('[data-slot="slider-range"]')!;
-    const thumb = element.querySelector('[data-slot="slider-thumb"]')!;
-    const track = element.querySelector('[data-slot="slider-track"]')!;
-    // aria-valuenow updates before the range's CSS transition finishes. Even
-    // reduced motion leaves a 0.01ms transition pending until a rendering tick.
-    // Wait for presentation to settle, then read all geometry in one DOM turn;
-    // separate boundingBox calls can observe different animation frames.
-    await Promise.all(
-      [...range.getAnimations(), ...thumb.getAnimations()].map((animation) => animation.finished),
-    );
-    return {
-      fillBox: range.getBoundingClientRect().toJSON(),
-      thumbBox: thumb.getBoundingClientRect().toJSON(),
-      currentTrackBox: track.getBoundingClientRect().toJSON(),
-    };
-  });
+  const { fillBox, thumbBox, currentTrackBox } = await bar.evaluate(
+    async (element) => {
+      const range = element.querySelector('[data-slot="slider-range"]')!;
+      const thumb = element.querySelector('[data-slot="slider-thumb"]')!;
+      const track = element.querySelector('[data-slot="slider-track"]')!;
+      // aria-valuenow updates before the range's CSS transition finishes. Even
+      // reduced motion leaves a 0.01ms transition pending until a rendering tick.
+      // Wait for presentation to settle, then read all geometry in one DOM turn;
+      // separate boundingBox calls can observe different animation frames.
+      await Promise.all(
+        [...range.getAnimations(), ...thumb.getAnimations()].map(
+          (animation) => animation.finished,
+        ),
+      );
+      return {
+        fillBox: range.getBoundingClientRect().toJSON(),
+        thumbBox: thumb.getBoundingClientRect().toJSON(),
+        currentTrackBox: track.getBoundingClientRect().toJSON(),
+      };
+    },
+  );
   expect(fillBox.width / currentTrackBox.width).toBeGreaterThan(0.74);
   expect(fillBox.width / currentTrackBox.width).toBeLessThan(0.78);
-  expect(Math.abs(fillBox.x + fillBox.width - thumbBox.x - thumbBox.width / 2)).toBeLessThan(2);
+  expect(
+    Math.abs(fillBox.x + fillBox.width - thumbBox.x - thumbBox.width / 2),
+  ).toBeLessThan(2);
   await expect(
     page.getByText("Speech requests: 1; seek requests: 1", { exact: true }),
   ).toBeVisible();
-  await page.screenshot({ path: info.outputPath("speech-following-playback.png") });
+  await page.screenshot({
+    path: info.outputPath("speech-following-playback.png"),
+  });
 });

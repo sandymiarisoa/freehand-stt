@@ -16,8 +16,6 @@ import (
 )
 
 const (
-	settingsWindowName   = "settings"
-	settingsWindowURL    = "/?window=settings"
 	mainWindowName       = "main"
 	mainWindowURL        = "/index.html#main"
 	mainWindowWidth      = 1080
@@ -134,11 +132,34 @@ func baseWindowOptionsForPlatform(osName, name, title, url string, width, height
 }
 
 func mainWindowOptions(startupLaunch, showWindowOnLaunch, useMica bool, appearanceMode config.AppearanceMode, systemDark bool) application.WebviewWindowOptions {
-	return baseWindowOptions(
+	return mainWindowOptionsForPlatform(runtime.GOOS, startupLaunch, showWindowOnLaunch, useMica, appearanceMode, systemDark)
+}
+
+func mainWindowOptionsForPlatform(osName string, startupLaunch, showWindowOnLaunch, useMica bool, appearanceMode config.AppearanceMode, systemDark bool) application.WebviewWindowOptions {
+	options := baseWindowOptionsForPlatform(
+		osName,
 		mainWindowName, "Freehand", mainWindowURL,
 		mainWindowWidth, mainWindowHeight, mainWindowMinWidth, mainWindowMinHeight,
 		windowStartsHidden(startupLaunch, showWindowOnLaunch), useMica, appearanceMode, systemDark,
 	)
+	switch osName {
+	case "windows":
+		options.Frameless = true
+		// Let Windows own hit testing for the custom caption buttons, including
+		// the maximize button's Snap Layouts flyout. Retain resize borders,
+		// rounded corners and the native shadow.
+		options.Windows.NonClientRegionSupport = true
+		options.Windows.WebView2CompositionHosting = true
+	case "darwin":
+		// Full-size content with native traffic lights. Frameless=true would
+		// remove those controls; a native invisible drag strip would intercept
+		// the command/menu buttons. The renderer supplies selective drag areas.
+		options.Mac.TitleBar = application.MacTitleBarHiddenInset
+		// Match the compact workspace header instead of letting AppKit choose
+		// a taller toolbar with lower traffic-light placement.
+		options.Mac.TitleBar.ToolbarStyle = application.MacToolbarStyleUnifiedCompact
+	}
+	return options
 }
 
 func aboutWindowOptions(useMica bool, appearanceMode config.AppearanceMode, systemDark bool) application.WebviewWindowOptions {
@@ -368,7 +389,7 @@ func (a *App) newMainWindow() {
 	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 		a.persistMainWindowPlacement(window)
 		event.Cancel()
-		window.Hide()
+		a.requestShellClose()
 	})
 	window.OnWindowEvent(events.Common.WindowLostFocus, func(*application.WindowEvent) {
 		a.persistMainWindowPlacement(window)
@@ -378,6 +399,7 @@ func (a *App) newMainWindow() {
 	})
 	window.OnWindowEvent(events.Common.WindowHide, func(*application.WindowEvent) {
 		a.tray.SetMainWindowVisible(false)
+		window.EmitEvent("shell:hidden")
 	})
 	window.OnWindowEvent(events.Common.WindowMinimise, func(*application.WindowEvent) {
 		a.tray.SetMainWindowVisible(false)
@@ -398,48 +420,25 @@ func (a *App) newMainWindow() {
 	a.tray.SetMainWindowVisible(a.mainWindow.visible())
 }
 
-func settingsWindowOptions(useMica bool, appearanceMode config.AppearanceMode, systemDark bool) application.WebviewWindowOptions {
-	return baseWindowOptions(settingsWindowName, "Freehand — Settings", settingsWindowURL, 880, 680, 560, 520, true, useMica, appearanceMode, systemDark)
-}
-func (a *App) newSettingsWindow() {
-	if a.settingsWindow.current() != nil {
-		return
-	}
-	window := a.wails.Window.NewWithOptions(settingsWindowOptions(a.settings.UseMica, a.settings.AppearanceMode, a.wails.Env.IsDarkMode()))
-	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) { event.Cancel(); a.requestSettingsClose() })
-	window.OnWindowEvent(events.Common.WindowShow, func(*application.WindowEvent) { a.publishSettingsVisibility(true) })
-	window.OnWindowEvent(events.Common.WindowHide, func(*application.WindowEvent) { a.publishSettingsVisibility(false) })
-	a.settingsWindow.attach(window)
-}
+// showSettings is the tray's entry into configuration. Settings is a pane of
+// the main window rather than a window of its own, so this is navigation: the
+// request still arrives exactly once, through the shell's ready handshake.
 func (a *App) showSettings(section string) { _ = a.windowing.OpenSettings(section) }
-func (a *App) revealSettings(_ string) {
+
+func (a *App) revealSettings(section string) {
 	a.hideTrayPopover()
-	if window := a.settingsWindow.current(); window != nil && !window.IsVisible() {
-		a.centerAuxiliaryWindow(window)
+	if section == "" {
+		section = "general"
 	}
-	a.settingsWindow.Reveal()
-	a.settingsShell.request(settingsOpenEvent, "", a.emitSettings)
+	a.navigateShell(settingsOpenEvent, section)
 }
-func (a *App) emitSettings(event, value string) {
-	if window := a.settingsWindow.current(); window != nil {
-		window.EmitEvent(event)
-	}
-}
-func (a *App) settingsReady() { a.settingsShell.ready(a.emitSettings) }
-func (a *App) requestSettingsClose() {
-	a.settingsShell.request(settingsCloseRequestedEvent, "", a.emitSettings)
-}
-func (a *App) publishSettingsVisibility(visible bool) {
-	if a.wails != nil {
-		a.wails.Event.Emit(settingsVisibilityEvent, visible)
-	}
-}
+
+// finishSettings returns the workspace to whichever workflow opened
+// configuration. There is no longer a window to hide.
 func (a *App) finishSettings(origin string) {
 	if a.capture != nil {
 		a.capture.Cancel()
 	}
-	a.settingsWindow.Hide()
-	a.publishSettingsVisibility(false)
 	if origin != "" {
 		a.navigateShell("workspace:select-task", origin)
 	}

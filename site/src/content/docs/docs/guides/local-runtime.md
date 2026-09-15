@@ -10,16 +10,16 @@ or API key. For live dictation, start with NeMo and its recommended Nemotron mod
 
 ## Choose a runtime and model
 
-| Runtime | Managed models and tasks | Supported computers |
-| --- | --- | --- |
-| NeMo-Speech.cpp | [Nemotron 3.5 Streaming](../../models/nemotron/) (recommended): live and completed transcription. [Parakeet TDT v3](../../models/parakeet/): completed transcription only. | Windows 11 x64; macOS 13+ on Apple Silicon or Intel |
-| whisper.cpp | Whisper Base (recommended), Small, or Medium: completed transcription only. | Windows 11 x64 only |
-| llama.cpp | [S1-mini by Superwhisper](../../models/s1-mini/) v1 Q4_K_M: English transcript cleanup only. | Windows 11 x64; macOS 13.3+ on Apple Silicon or Intel |
+| Runtime         | Managed models and tasks                                                                                                                                                   | Supported computers                                   |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| NeMo-Speech.cpp | [Nemotron 3.5 Streaming](../../models/nemotron/) (recommended): live and completed transcription. [Parakeet TDT v3](../../models/parakeet/): completed transcription only. | Windows 11 x64; macOS 13+ on Apple Silicon or Intel   |
+| whisper.cpp     | Whisper Tiny, Base (recommended), Small, Medium, Large v1/v2/v3, and Large v3 Turbo, with published English-only and quantized variants: completed transcription only.     | Windows 11 x64 only                                   |
+| llama.cpp       | [S1-mini by Superwhisper](../../models/s1-mini/) v1 Q4_K_M: English transcript cleanup only.                                                                               | Windows 11 x64; macOS 13.3+ on Apple Silicon or Intel |
 
 Runtime binaries and models are **not bundled with Freehand**. Installation and
 model downloads are separate, explicit actions; browsing the catalog downloads
-nothing. Managed setup supports only the models above, not arbitrary Whisper
-checkpoints or llama.cpp models. There is no managed text-to-speech runtime.
+nothing. Managed setup supports the catalog models described here. Custom model
+files require a manually managed server. There is no managed text-to-speech runtime.
 
 You can instead [configure a service manually](../connect-a-server/) on this
 computer, your network, or a hosted provider. Freehand connects to that service
@@ -70,11 +70,11 @@ index; NeMo's model manager handles the download.
 
 ## Set up local transcription
 
-1. Open **Settings → Local runtime**, under **Connections & vocabulary**.
+1. Open **Local runtime** from the activity rail on the left.
 2. Find **NeMo-Speech.cpp** in the runtime list and choose **Install**. Keep the
    recommended Nemotron 3.5 Streaming model. Installation does not download it.
-3. The row opens its setup controls. Progress and cancellation stay in that area;
-   use the chevron beside the runtime to collapse or reopen its details.
+3. Select the runtime in the inventory sidebar to view its setup controls,
+   progress, and cancellation action.
 4. When installation finishes, the action changes to **Download**.
    Choose it to download Nemotron, or use the catalog below to choose an alternative.
    Browsing the catalog does not download or load any model.
@@ -82,7 +82,7 @@ index; NeMo's model manager handles the download.
 6. In Voice's connection picker, select the built-in **NeMo-Speech.cpp** Connection.
    It appears automatically; no URL, API key, or additional connection setup is needed.
    Complete the microphone and recording setup.
-7. In Voice's transcription settings, enable **Realtime transcription** for the
+7. In **Voice transcription → Transcription** options, enable **Realtime transcription** for the
    recommended live-preview workflow. Captions and language remain Voice options.
 
 Start recording with the intended destination focused. The live preview can
@@ -97,13 +97,19 @@ in Voice keeps its connection and model selected and uses completed recording.
 
 ## Choose another model
 
-With details collapsed, each runtime row shows its status and selected model.
-Use **Download**, **Start**, **Stop**, or **Cancel** directly from that row; download
-progress and its result remain visible there. The chevron opens the full setup,
-model catalog, and runtime preferences. These actions never select a different
+Select a runtime in the inventory sidebar. Its detail pane shows state, setup
+actions, and a model table with download and selection controls. Open
+**Runtime preferences** for startup and binary options, or **Manage runtime**
+for removal and recovery actions. These actions never select a different
 Connection for your tasks.
 
 Choose a model from the runtime's catalog for the task you need.
+
+When Voice uses that runtime, selecting a model without realtime support, such
+as Parakeet, automatically switches Voice to completed transcription. You do
+not need to turn realtime off first. Switching back to Nemotron keeps completed
+mode until you enable **Realtime transcription** again. Voice settings for an
+independent Connection are unaffected.
 
 ### whisper.cpp transcription
 
@@ -112,6 +118,29 @@ download a model from its catalog, and choose **Start**. Select its
 built-in Connection for Voice or audio files. Voice uses completed transcription, not
 realtime; file response streaming is also unavailable. CPU and NVIDIA CUDA
 execution are available. Larger models need more memory and take longer to process.
+
+The catalog includes all 33 standard Whisper GGML variants published in the
+[official model repository](https://huggingface.co/ggerganov/whisper.cpp/tree/5359861c739e955e79d9a303bcbc70fb988958b1):
+
+- **Tiny, Base, Small, and Medium:** multilingual and English-only (`.en`) models,
+  plus the published Q5 and Q8 variants of each.
+- **Large v1, v2, and v3:** multilingual models, with Q5 and Q8 for v2 and Q5 for v3.
+- **Large v3 Turbo:** multilingual, with standard, Q5, and Q8 variants.
+
+**Whisper Base** remains the recommended starting point. Choose an `.en` variant
+only for English audio; use a multilingual model for other languages. Quantized
+variants use less disk space and memory than the corresponding standard model.
+The catalog shows each download's exact size; speed and transcription quality
+depend on the model, quantization, audio, and your computer. Review the model's
+download details and choose **Get** explicitly when you are ready to download it.
+Installing the runtime or browsing this list does not download model weights.
+
+Whisper variants are grouped by family. Expand a family or search the catalog
+to find a model. Descriptions appear below model names; expand a row to inspect
+its download source and technical details.
+The same catalog is available before and after runtime installation. Model
+downloads and selection become available after installation, while the runtime
+is stopped.
 
 ### Local cleanup with S1-mini
 
@@ -152,10 +181,10 @@ pinned CPU and CUDA 12.4 packages, not an upgrade to the latest upstream release
 Existing installations do not change automatically. Recommendations do not
 reserve GPU memory, stop other runtimes, or change as free GPU memory fluctuates.
 
-For llama.cpp or whisper.cpp, open its details using the chevron. If it is
+For llama.cpp or whisper.cpp, select it in the runtime sidebar. If it is
 running, choose **Stop**. Under **Runtime binary**, choose
 **NVIDIA GPU (CUDA)** and wait for installation to finish, then choose
-**Start**. Runtime management, quick settings, and Connection details
+**Start**. Runtime management, workflow options, and Connection details
 show the installed backend separately from the Connection name. Changing the
 backend does not rename custom Connections or alter task selections.
 
@@ -191,7 +220,7 @@ place with a completion, cancellation, or failure message. Successful downloads
 also show **Downloaded** beside their size.
 
 Downloads can be cancelled and retried. Stop active transcription before
-switching or removing the loaded model. In task quick settings, choose the
+switching or removing the loaded model. In the task's **Transcription** or **Cleanup** options, choose the
 **Connection** first, then choose one of that runtime's downloaded models under
 **Selected model**. The runtime shares its selected model with every task using
 it. **Manage runtime** opens installation, downloads, and runtime details.
@@ -206,6 +235,15 @@ elapsed time rather than an estimated percentage. GPU startup includes warm-up;
 loading and warm-up may appear as one phase when the runtime cannot report them
 separately. Wait for **Running** before using the runtime.
 
+**Start** and **Stop** show their pending action immediately. The runtime page
+and workflow sidebar then follow the reported state, including startup stages,
+completion, and errors. Each selected local connection has these controls directly
+below its picker, including a local Cleanup connection when cleanup is off.
+Use **Cancel** during an operation. Stop the runtime before choosing a different
+downloaded model. **Manage runtime** opens that exact runtime for downloads and
+installation options; **View output** opens its bottom-panel output tab.
+You can change pages while an operation continues.
+
 Warm-up uses only the selected installed model. For CUDA whisper.cpp, Freehand
 sends one second of synthetic silence to the local runtime after it is ready
 and discards the response. It never records your microphone, warms other catalog
@@ -216,21 +254,27 @@ is enabled; browsing models and connection checks remain metadata-only.
 If startup fails or takes too long, use **Cancel**, check resources, and retry.
 You can inspect recent process output while startup is still in progress:
 
-1. Choose **View output** in Local runtime or the task’s runtime quick controls.
-2. The separate **Process output** window opens with a blank viewer and disabled
-   output controls. Read its warning banner and choose **Show output** only if
-   displaying it on your screen is safe.
+1. Choose **View output** in Local runtime or the task's runtime controls.
+2. The shared **Runtime output** bottom panel opens and displays that runtime's
+   available output immediately. Select another runtime's tab to inspect it.
 3. Use **Search** to find text, **Follow** to follow new output, or **Clear** to
    discard the captured output. Collection continues when Follow is off.
 4. Select text and choose **Copy selection** if you want it on your clipboard.
    Copied text can remain there after the viewer closes.
 
+If the viewer reports an error, choose **Retry output** to try reading again.
+
 The read-only viewer supports colors and in-place progress updates when the
-runtime emits them. It does not accept commands or save log files. Closing it
-does not stop the runtime. Each opening requires consent again; closing or
-switching runtimes clears the displayed text and revokes access, but the private
-bounded tail remains until cleared, the next start attempt, runtime removal, or
-Quit. Older output is discarded as the buffer fills. llama.cpp captures normal
+runtime emits them. It does not accept commands or save log files. Hiding it
+does not stop the runtime. The visible viewer and selected runtime stay available
+when you navigate between workflows, Connections, Local runtime, and History.
+Hiding the panel, changing its panel tab, opening global Settings, hiding the
+workspace, or switching runtimes clears displayed text and stops the viewer's
+reads. Reopening shows the selected runtime's available output directly. The
+private bounded tail remains until cleared, the next start attempt, runtime
+removal, or Quit. The standalone **Process output** window requires **Show output**
+on each opening or runtime switch. Older output is discarded as the buffer fills.
+llama.cpp captures normal
 informational, warning, and error output without debug logging. This can still
 include prompts or other sensitive text. Output can be sparse or absent; an
 empty viewer is not proof of a failed start.
@@ -240,7 +284,9 @@ output during screen sharing.
 ## Stop, disable, or remove
 
 Stopping releases the running server; starting it again reloads the selected
-model. **Start when Freehand launches**, under **Runtime preferences**, enables
+model. **Restart** waits for the server to stop before loading that model again;
+failed or cancelled stopping prevents the new launch.
+**Start when Freehand launches**, under **Runtime preferences**, enables
 startup for an installed runtime without downloading missing files.
 Quitting Freehand stops the processes it owns, including active downloads.
 
@@ -249,11 +295,10 @@ connection picker. Manual connections retain their URLs, models, and API keys.
 Stopping a runtime does not change any task's selection. A local runtime failure
 does not automatically send audio to another server.
 
-The recording controls remain available while the runtime is stopped or starting.
-The recording area shows its current availability; use transcription quick settings
-to start it. An attempt to record before it is ready reports the failure in Freehand
-and through the status overlay when error feedback is enabled. Start the runtime,
-wait for **Ready**, then try recording again. Previous results remain available to copy.
+The Voice recording header shows runtime availability and startup progress.
+**Record** becomes available when the selected runtime is running. Start a stopped
+runtime from the workflow sidebar or **Local runtime**. Previous results remain
+available to copy, and an existing recording keeps its Stop and Cancel controls.
 
 **Remove runtime files**, under **Runtime preferences**, deletes that runtime's
 managed binaries and model data after

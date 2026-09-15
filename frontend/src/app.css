@@ -10,7 +10,10 @@
  * solid and Mica appearances; status colours remain separate from the brand.
  */
 :root {
-  /* Surfaces, recessed to raised. */
+  /* Surfaces, recessed to raised. --sunk is the only one below the page
+   * ground: it is the inside of a meter, a log or a live-text well, and it
+   * has to be darker than what surrounds it or the recess inverts. */
+  --sunk: #e7e7e7;
   --well: #f0f0f0;
   --background: #f4f4f4;
   --layer-fill: #ededed;
@@ -63,8 +66,13 @@
   --success: #197f60;
   --warning: #b45309;
   --destructive: #dc2626;
-  /* The record control is the one saturated constant in both themes. */
+  /* The record control is the one saturated constant in both themes. The
+   * wash/edge/text trio carries the same hue onto a surface, so the status
+   * bar can state "recording" without a second colour entering the palette. */
   --record: #cf4d62;
+  --record-wash: rgb(207 77 98 / 10%);
+  --record-edge: rgb(207 77 98 / 26%);
+  --record-text: #a82f44;
 
   --border: #dddddd;
   --input: #d2d2d2;
@@ -91,7 +99,7 @@
   --chart-4: #94a3b8;
   --chart-5: #c0c7d2;
 
-  --radius: 0.75rem;
+  --radius: 0.5rem;
 
   --sidebar: #ededed;
   --sidebar-foreground: #202020;
@@ -106,6 +114,7 @@
 .dark {
   /* Charcoal surfaces separate the canvas, content and floating controls.
 	 * Brand blue is reserved for actions and selected state. */
+  --sunk: #0e0e0e;
   --well: #151515;
   --background: #121212;
   --layer-fill: #1b1b1b;
@@ -150,6 +159,9 @@
   --warning: #fbbf24;
   --destructive: #f87171;
   --record: #cf4d62;
+  --record-wash: rgb(207 77 98 / 16%);
+  --record-edge: rgb(207 77 98 / 34%);
+  --record-text: #f0a8b3;
 
   --border: #383838;
   --input: #424242;
@@ -244,6 +256,9 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-record: var(--record);
+  --color-record-wash: var(--record-wash);
+  --color-record-edge: var(--record-edge);
+  --color-record-text: var(--record-text);
   --shadow-lift: var(--lift);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -288,6 +303,7 @@
   --color-control-fill-active: var(--control-fill-active);
   --color-layer-fill: var(--layer-fill);
   --color-well: var(--well);
+  --color-sunk: var(--sunk);
   --color-subtle-fill-hover: var(--subtle-fill-hover);
   --color-subtle-fill-pressed: var(--subtle-fill-pressed);
   --color-popover-foreground: var(--popover-foreground);
@@ -298,13 +314,17 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  /*
+   * Workspace regions meet at square edges. Controls and badges use 4px;
+   * floating surfaces use 8px. Larger aliases share the floating radius.
+   */
   --radius-sm: 0.25rem;
-  --radius-md: 0.375rem;
+  --radius-md: 0.25rem;
   --radius-lg: 0.5rem;
-  --radius-xl: 0.625rem;
-  --radius-2xl: 1rem;
-  --radius-3xl: 1.25rem;
-  --radius-4xl: 1.5rem;
+  --radius-xl: 0.5rem;
+  --radius-2xl: 0.5rem;
+  --radius-3xl: 0.5rem;
+  --radius-4xl: 0.5rem;
 }
 
 @layer base {
@@ -316,6 +336,8 @@
   body {
     @apply min-h-screen bg-background text-foreground antialiased;
     margin: 0;
+    font-size: 0.8125rem;
+    line-height: 1.5;
     --wails-resize: all;
   }
   html {
@@ -327,7 +349,9 @@
     background: var(--background);
   }
   button,
-  input {
+  input,
+  select,
+  textarea {
     font: inherit;
   }
   ::selection {
@@ -412,19 +436,138 @@ html.dark[data-material="mica"] #app {
   }
 }
 
-/* Settings use one quiet group surface; row content shares a consistent inset. */
+/* Content hierarchy is shared by every workbench area. Surfaces group related
+ * facts; accent colours remain reserved for actions, selection and status. */
+@layer components {
+  .workbench-header,
+  .workbench-toolbar {
+    display: flex;
+    min-width: 0;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 8px;
+    padding-inline: 12px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .workbench-header {
+    height: 34px;
+  }
+  .workbench-toolbar {
+    min-height: 28px;
+  }
+  .workbench-tab {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    height: 100%;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    padding-inline: 12px;
+    border-radius: 0;
+    color: var(--muted-foreground);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition:
+      color 100ms,
+      background-color 100ms;
+  }
+  .workbench-tab:is([aria-selected="true"], [aria-pressed="true"]) {
+    color: var(--foreground);
+  }
+  .workbench-tab:is([aria-selected="true"], [aria-pressed="true"])::after {
+    content: "";
+    position: absolute;
+    inset-inline: 12px;
+    bottom: 0;
+    height: 1px;
+    background: var(--accent-text);
+  }
+  .workbench-tab:hover:not(:disabled):not([aria-disabled="true"]) {
+    background: var(--subtle-fill-hover);
+    color: var(--foreground);
+  }
+  .workbench-tab:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+  }
+  .content-title {
+    font-family: var(--font-sans);
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: 0;
+    color: var(--foreground);
+  }
+  .content-section-title {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--foreground);
+  }
+  .content-kicker {
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.5;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+  .content-meta {
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.5;
+    color: var(--muted-foreground);
+  }
+  .content-value {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.5;
+    color: var(--foreground);
+  }
+  .content-summary {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    background: var(--well);
+  }
+  .content-section-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    color: var(--muted-foreground);
+  }
+  .content-disclosure {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--foreground);
+  }
+  .content-disclosure:hover:not(:disabled) {
+    background: var(--subtle-fill-hover);
+  }
+  .content-disclosure:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+  }
+}
+
+/* Settings groups own their shared inset; rows retain full-width separators. */
 .settings-group > * {
-  padding-inline: 1.125rem;
+  padding-inline: 0;
 }
 
 /* Shared control geometry belongs to the application, across all windows. */
 [data-slot="input"],
+[data-slot="combobox-input"],
 [data-slot="textarea"],
 [data-slot="select-trigger"] {
-  border-radius: 0.5rem;
+  border-radius: var(--radius-md);
   color: var(--foreground);
 }
 [data-slot="input"]:not(:focus-visible):not([aria-invalid="true"]),
+[data-slot="combobox-input"]:not(:focus-visible):not([aria-invalid="true"]),
 [data-slot="textarea"]:not(:focus-visible):not([aria-invalid="true"]),
 [data-slot="select-trigger"]:not(:focus-visible):not([aria-invalid="true"]) {
   border-color: color-mix(in srgb, var(--muted-foreground) 75%, var(--well));
@@ -433,19 +576,19 @@ html.dark[data-material="mica"] #app {
 [data-slot="dropdown-menu-content"],
 [data-slot="select-content"],
 [data-slot="combobox-content"] {
-  border-radius: 0.875rem;
-  box-shadow:
-    0 12px 40px rgb(0 0 0 / 16%),
-    0 2px 6px rgb(0 0 0 / 8%);
+  border-radius: 0.5rem;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
 }
+/* A dialog is the one surface allowed a wider corner: it is a window, not a
+ * panel, and the extra 2px is what separates it from the page behind it. */
 [data-slot="dialog-content"] {
-  border-radius: 1rem;
+  border-radius: 0.625rem;
 }
 [data-slot="dropdown-menu-item"],
 [data-slot="dropdown-menu-checkbox-item"],
 [data-slot="dropdown-menu-radio-item"] {
-  min-height: 2.25rem;
-  border-radius: 0.5rem;
+  min-height: 1.75rem;
+  border-radius: var(--radius-md);
 }
 
 /* Selected options share the navigation accent without changing focus rings. */
@@ -461,17 +604,18 @@ html.dark[data-material="mica"] #app {
 @media (forced-colors: active) {
   [aria-current="page"],
   [aria-pressed="true"],
+  .workbench-tab[aria-selected="true"],
   [data-slot="toggle-group-item"][data-state="on"] {
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }
 }
 
-/* The settings shell is fixed to the WebView. Only its navigation and content
- * panes scroll; a viewport-height body would add an outer scroller under zoom. */
-html:has([data-window="settings"]) {
+/* Workbench columns own scrolling. A viewport-height body would add an outer
+ * scroller under zoom, including on contextual configuration pages. */
+html:has(.workbench-frame) {
   overflow: clip;
 }
-html:has([data-window="settings"]) body {
+html:has(.workbench-frame) body {
   min-height: 0;
 }

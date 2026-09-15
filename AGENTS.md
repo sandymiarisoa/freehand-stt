@@ -35,7 +35,7 @@ Optional realtime microphone dictation is qualified for NeMo-Speech.cpp v0.1.0 w
 
 ## Architecture
 
-- Keep the output viewer read-only, with limited color/progress controls and explicit Copy selection. Require sensitive-output consent and bounded memory-only reads; never forward terminal input or enable output-triggered clipboard, link, title, or file actions. Viewer controls do not own the runtime process.
+- Keep the output viewer read-only, with limited color/progress controls and explicit Copy selection. Embedded Runtime output tabs display immediately when opened and read only while their viewer, workspace, and document are visible; hiding or switching away clears renderer output and disables reads, and reopening resumes directly. The standalone Process output window requires sensitive-output consent per opening or runtime switch. Keep all reads bounded and memory-only; never forward terminal input or enable output-triggered clipboard, link, title, or file actions. Viewer controls do not own the runtime process.
 - Use host-aware pinned binary recommendations and platform-specific recipes. Recommendations never change existing installations automatically. Selected-model GPU warm-up belongs to startup; health/catalog operations stay metadata-only. macOS recipes support NeMo on Apple Silicon (Metal) and Intel (CPU), and llama.cpp on macOS 13.3+ (Apple Silicon CPU/Metal, Intel CPU). Managed whisper.cpp remains Windows-only until upstream publishes a macOS server binary.
 - List implemented providers directly: one configured installation and one running process tree per provider, with distinct providers allowed concurrently. Preserve existing IDs and expose explicit duplicate recovery rather than merging or deleting user installations. Managed llama.cpp qualifies S1-mini cleanup; managed whisper.cpp qualifies completed transcription. Windows uses pinned x64 CPU/CUDA binaries and revision/checksum-pinned catalog downloads. NeMo retains its hardware checks and model-manager acquisition.
 - Runtime instances own installation, model loading, and process lifetime; saved Connections own independent task selection. Keep runtime inventory management separate but linked from Connections and quick settings. Realtime belongs to Voice; S1-mini belongs to cleanup model behavior, not a separate runtime adapter.
@@ -98,7 +98,7 @@ Use `freehand.db` with its distinct application identity. Start from defaults an
 - Preserve Unicode text.
 - Clipboard insertion must not destroy unrelated clipboard state or paste into the wrong HWND.
 - Use Wails single-instance ownership with encrypted second-instance messages. A second launch should reveal the main window rather than starting another recorder.
-- Tray Quit is the authoritative shutdown path; main-window close hides the task workspace. One reusable Settings window owns configuration and its inline Connections editor; its close action resolves drafts before hiding. Never open a separate native Connection Manager.
+- Tray Quit is the authoritative shutdown path; main-window close hides the workspace. The main window owns every place through one activity rail: workflows, Connections, local runtimes, History, and application settings. Workflow configuration belongs beside its workflow in the right sidebar; Connections owns its catalog and editor. Closing configuration or changing pages resolves drafts through the shared transactional settings owner. Never open a separate native Settings or Connection Manager window.
 
 ## macOS interaction requirements
 

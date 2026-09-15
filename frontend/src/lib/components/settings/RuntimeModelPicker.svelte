@@ -23,6 +23,7 @@
     onChoose,
     onForget,
     compact = false,
+    sidebar = false,
     immediate = false,
     disabled = false,
     profileName = "",
@@ -43,6 +44,7 @@
     profileName?: string;
     showProfileName?: boolean;
     compact?: boolean;
+    sidebar?: boolean;
     immediate?: boolean;
     onForget?: () => void;
   } = $props();
@@ -96,25 +98,30 @@
 <div class={compact ? "space-y-2" : "space-y-2 px-5 py-4"}>
   <div class="flex items-center justify-between gap-3">
     <div class="flex items-center gap-1">
-      <label for={id} class="text-sm font-semibold">Model</label><FieldHelp
+      <label for={id} class="text-[13px] font-medium">Model</label><FieldHelp
         label="About model settings"
         text={help}
       />
     </div>
     <div class="flex items-center gap-1">
       <Button
-        variant="soft"
+        variant={sidebar ? "ghost" : "soft"}
         size="sm"
+        class={sidebar ? "size-6 p-0" : ""}
+        aria-label={serverLoaded ? "Check server" : "Refresh models"}
+        title={serverLoaded ? "Check server" : "Refresh models"}
         disabled={locked || busy}
         onclick={onDiscover}
         ><RefreshCwIcon
           class={busy ? "size-3.5 animate-spin" : "size-3.5"}
-        />{serverLoaded ? "Check server" : "Refresh models"}</Button
+        />{#if !sidebar}{serverLoaded
+            ? "Check server"
+            : "Refresh models"}{/if}</Button
       >
       {#if onForget && savedModels.includes(value) && !serverLoaded}<Menu.Root
           ><Menu.Trigger
             aria-label="Model actions"
-            class="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            class="inline-flex size-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-subtle-fill-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
             disabled={locked}><EllipsisIcon class="size-4" /></Menu.Trigger
           ><Menu.Content align="end" class="w-60 max-w-[calc(100vw-24px)]"
             ><Menu.Item onclick={onForget} class="gap-2.5 px-3 py-2.5">
@@ -144,11 +151,10 @@
     </p>
   {:else}<Combobox.Root
       type="single"
-      {value}
+      bind:value={() => value, (next) => void choose(next)}
       inputValue={open ? query : value}
       bind:open
       items={choices}
-      onValueChange={choose}
       onOpenChange={(next) => {
         if (next) onEnter?.();
         else query = "";
@@ -158,11 +164,12 @@
     >
       <div class="relative">
         <Combobox.Input
+          data-slot="combobox-input"
           {id}
           aria-label="Choose model"
           aria-describedby={`${id}-help`}
           placeholder="Search or enter a model ID…"
-          class="h-9 w-full min-w-0 rounded-lg border border-input bg-background px-3 pr-9 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          class="h-8 w-full min-w-0 rounded-md border border-input bg-well px-3 pr-9 font-mono text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           spellcheck={false}
           onclick={() => {
             if (!open) {
@@ -232,7 +239,7 @@
         </Combobox.Content></Combobox.Portal
       >
     </Combobox.Root>{/if}
-  {#if (showProfileName && profileName) || (value && !serverLoaded)}
+  {#if !sidebar && ((showProfileName && profileName) || (value && !serverLoaded))}
     <p
       class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
     >

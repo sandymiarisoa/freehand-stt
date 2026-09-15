@@ -1,7 +1,10 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import type { Session } from "$lib/stores/session.svelte";
   import { saveConnectionAndContinue } from "$lib/shell-navigation.svelte";
+  import { getWorkbenchLayout } from "$lib/workbench-layout.svelte";
+  import SidebarContribution from "$lib/components/shell/SidebarContribution.svelte";
+  import PaneHeader from "$lib/components/home/PaneHeader.svelte";
   import { Action, Purpose, type Connection } from "$bindings/savedconnection";
   import {
     connectionSection,
@@ -9,6 +12,7 @@
   } from "$lib/utils/connectionChoices";
   import ConnectionList from "$lib/components/settings/ConnectionList.svelte";
   import BuiltInConnectionDetails from "$lib/components/settings/BuiltInConnectionDetails.svelte";
+  import ProviderIcon from "$lib/components/ProviderIcon.svelte";
   import * as WindowingService from "$bindings/windowing/service";
   import ConnectionSaveActions from "$lib/components/settings/ConnectionSaveActions.svelte";
   import PendingChangesDialog from "$lib/components/settings/PendingChangesDialog.svelte";
@@ -20,6 +24,9 @@
   import CheckIcon from "@lucide/svelte/icons/check";
   import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
   import EllipsisIcon from "@lucide/svelte/icons/ellipsis";
+  import ActivityIcon from "@lucide/svelte/icons/activity";
+  import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
+  import ServerIcon from "@lucide/svelte/icons/server";
   import * as Menu from "$lib/components/ui/dropdown-menu";
   import type { ConnectionManagerRequest } from "$bindings/windowing";
 
@@ -30,6 +37,7 @@
   let {
     session,
     initialRequest,
+    workbenchPage = false,
     onReturn,
     onManageRuntime = () => {
       void WindowingService.OpenSettings("local-runtime").catch((cause) =>
@@ -40,10 +48,13 @@
   }: {
     session: Session;
     initialRequest: ConnectionManagerRequest;
+    workbenchPage?: boolean;
     onReturn: (purpose?: Purpose) => void;
     onManageRuntime?: () => void;
     onCancelClose?: () => void;
   } = $props();
+  const layout = getWorkbenchLayout();
+  const fullPage = $derived(workbenchPage && !!layout);
   let request = $state<ConnectionManagerRequest | null>(null);
   let visible = $state(false);
   let loading = $state(false);
@@ -52,6 +63,12 @@
   let selectedID = $state("");
   let activateFor = $state<Purpose | undefined>();
   let deleteOpen = $state(false);
+  const inlineError = $derived(
+    discardOpen || deleteOpen ? "" : session.messages.error,
+  );
+  $effect(() => {
+    if (deleteOpen) return layout?.claimNotifications("modal");
+  });
   const editor = $derived(session.editor);
   const busy = $derived(editor.saving || editor.managedConnectionTesting);
   const selected = $derived(
@@ -145,12 +162,17 @@
     });
   }
   function select(connection: Connection) {
-    if (connection.id === selectedID && editor.connectionDraft) return;
+    if (connection.id === selectedID && editor.connectionDraft) {
+      closeCatalog();
+      return;
+    }
     navigate(() => {
       request = null;
       selectedID = connection.id;
       activateFor = undefined;
       editor.beginConnection(connection);
+      if (connection.builtIn || editor.connectionDraft?.id === connection.id)
+        void closeCatalog();
     });
   }
   function add() {
@@ -159,7 +181,16 @@
       selectedID = "";
       activateFor = undefined;
       editor.beginConnection();
+      if (editor.connectionDraft?.creating) void closeCatalog();
     });
+  }
+  async function closeCatalog() {
+    if (!fullPage || !layout?.compact.current || !layout.compactPrimaryOpen)
+      return;
+    // Let a save/discard dialog release its focus before closing the drawer.
+    await tick();
+    if (fullPage && layout.compact.current && layout.compactPrimaryOpen)
+      layout.closePrimary();
   }
   function discard() {
     const action = pendingAction;
@@ -260,9 +291,13 @@
     } else if (selected) editor.beginConnection(selected);
   }
   onMount(() => {
+    const releaseNotifications = layout?.claimNotifications("error");
     void prepare();
     void session.runtime.load();
-    return clear;
+    return () => {
+      releaseNotifications?.();
+      clear();
+    };
   });
 </script>
 
@@ -271,6 +306,8 @@
     if (
       event.key === "Escape" &&
       !event.defaultPrevented &&
+      !layout?.compactPrimaryOpen &&
+      !layout?.compactSecondaryOpen &&
       !discardOpen &&
       !deleteOpen
     ) {
@@ -283,70 +320,88 @@
 <div
   class="flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent text-foreground"
 >
-  <header
-    class="flex shrink-0 items-center justify-between gap-4 border-b border-hairline px-4 py-3"
-  >
-    <div class="flex min-w-0 items-center gap-3">
-      {#if showingDetails}<Button
+  <PaneHeader title="Connections" icon={ServerIcon}>
+    {#snippet actions()}
+      {#if showingDetails && !fullPage}<Button
           variant="ghost"
-          size="sm"
+          size="xs"
           disabled={busy}
           onclick={() => leave(false)}><ArrowLeftIcon />All connections</Button
         >{/if}
-      <div class="min-w-0">
-        <h1 class="truncate text-lg font-semibold">Connections</h1>
-        <p class="mt-0.5 text-xs text-secondary-foreground">
-          Saved servers and built-in runtimes
-        </p>
-      </div>
-    </div>
-    <Button variant="outline" disabled={busy} onclick={() => leave(true)}
-      >Done</Button
-    >
-  </header>
-  {#if loading}<p class="p-5 text-sm text-muted-foreground">
+      <Button
+        variant="outline"
+        size="xs"
+        disabled={busy}
+        onclick={() => leave(true)}>Done</Button
+      >
+    {/snippet}
+  </PaneHeader>
+  {#if loading}<p class="px-5 py-3 text-[13px] text-muted-foreground">
       Loading connections…
     </p>
   {:else if visible && editor.applied}
-    {#if !editor.connectionDraft && session.messages.error}<p
+    {#if !editor.connectionDraft && inlineError}<p
         role="alert"
-        class="px-4 py-2 text-sm text-destructive"
+        class="px-5 py-2 text-[13px] text-destructive"
       >
-        {session.messages.error}
+        {inlineError}
       </p>{/if}
     <div class="manager-body" class:editing={showingDetails}>
-      <aside class="connection-list bg-background">
-        <ConnectionList
-          catalog={editor.applied.savedConnections}
-          instances={session.runtime.instances}
-          selected={selectedID}
-          creating={editor.connectionDraft?.creating}
-          {busy}
-          onSelect={select}
-          onAdd={add}
-        />
-      </aside>
+      {#if fullPage}
+        <SidebarContribution id="connections">
+          <ConnectionList
+            catalog={editor.applied.savedConnections}
+            instances={session.runtime.instances}
+            selected={selectedID}
+            creating={editor.connectionDraft?.creating}
+            {busy}
+            sidebar
+            onSelect={select}
+            onAdd={add}
+          />
+        </SidebarContribution>
+      {:else}
+        <aside class="connection-list bg-background">
+          <ConnectionList
+            catalog={editor.applied.savedConnections}
+            instances={session.runtime.instances}
+            selected={selectedID}
+            creating={editor.connectionDraft?.creating}
+            {busy}
+            onSelect={select}
+            onAdd={add}
+          />
+        </aside>
+      {/if}
       {#if showingDetails}<section
           aria-label={selected?.builtIn
             ? "Connection details"
             : "Connection editor"}
           class="flex min-h-0 min-w-0 flex-1 flex-col"
         >
-          <div
-            class="flex shrink-0 items-center justify-between gap-3 border-b border-hairline px-5 py-3"
-          >
-            <h2 class="truncate text-sm font-semibold">
-              {editor.connectionDraft?.creating
-                ? "New connection"
-                : (selected?.name ?? "Edit connection")}
-            </h2>
+          <div class="workbench-toolbar min-h-[34px] justify-between">
+            <div class="flex min-w-0 items-center gap-2.5">
+              <ProviderIcon
+                profile={selected?.builtIn
+                  ? (runtimeInstance?.provider ??
+                    selected.details.compatibilityProfile)
+                  : (editor.connectionDraft?.details.compatibilityProfile ??
+                    selected?.details.compatibilityProfile)}
+                size={16}
+              />
+              <h2 class="content-section-title truncate">
+                {editor.connectionDraft?.creating
+                  ? "New connection"
+                  : (selected?.name ?? "Edit connection")}
+              </h2>
+            </div>
             {#if selected}<div class="flex items-center gap-1">
                 <Menu.Root
                   ><Menu.Trigger disabled={busy}>
                     {#snippet child({ props })}<Button
                         {...props}
-                        size="sm"
-                        variant="soft">Use for…</Button
+                        size="xs"
+                        variant="ghost">Use for…</Button
                       >{/snippet}
                   </Menu.Trigger><Menu.Content
                     align="end"
@@ -359,7 +414,7 @@
                         selected.id}
                       <Menu.Item
                         onSelect={() => use(role.id)}
-                        class="gap-3 rounded-md px-3 py-2.5"
+                        class="gap-2 px-2 py-1.5 text-[13px]"
                       >
                         <Icon />
                         <span class="flex-1 whitespace-nowrap"
@@ -380,7 +435,7 @@
                     ><Menu.Trigger disabled={busy}>
                       {#snippet child({ props })}<Button
                           {...props}
-                          size="icon-sm"
+                          size="icon-xs"
                           variant="ghost"
                           aria-label="Connection actions"
                           ><EllipsisIcon /></Button
@@ -390,14 +445,14 @@
                       class="w-56 max-w-[calc(100vw-24px)] p-1.5"
                     >
                       <Menu.Item
-                        class="gap-3 rounded-md px-3 py-2.5"
+                        class="gap-2 px-2 py-1.5 text-[13px]"
                         disabled={(editor.applied.savedConnections.entries
                           ?.length ?? 0) >= 96}
                         onSelect={duplicate}><CopyIcon />Duplicate</Menu.Item
                       >
                       <Menu.Separator />
                       <Menu.Item
-                        class="gap-3 rounded-md px-3 py-2.5"
+                        class="gap-2 px-2 py-1.5 text-[13px]"
                         variant="destructive"
                         disabled={!!activeUses.length || editor.connectionDirty}
                         onSelect={() => {
@@ -422,7 +477,7 @@
               </div>{/if}
           </div>
           <main
-            class="connection-fields space-y-4 min-h-0 flex-1 overflow-y-auto overscroll-contain p-4"
+            class="connection-fields @container min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-5 py-3"
           >
             {#if selected?.builtIn}
               <BuiltInConnectionDetails
@@ -441,20 +496,30 @@
                 chooseWorkflow={!request?.purpose || !request.create}
                 formID="connection-editor"
                 externalActions
-                error={session.messages.error}
+                error={inlineError}
                 onBack={() => leave(false)}
                 onSaved={saved}
               />{/if}
             {#if selected}<details
-                class="rounded-xl border border-hairline bg-card p-3"
+                class="group/connection-check border-t border-hairline"
               >
                 <summary
-                  class="cursor-pointer rounded-sm text-xs font-medium text-accent-text focus-visible:outline-ring"
-                  >Connection check · {connectionStatusLabel(
-                    editor.savedConnectionChecks[selected.id] ?? null,
-                  )}</summary
+                  class="content-disclosure flex cursor-pointer list-none items-center gap-2 rounded-sm py-3 [&::-webkit-details-marker]:hidden"
+                  ><ActivityIcon
+                    class="content-section-icon"
+                    aria-hidden="true"
+                  />
+                  <span class="min-w-0 flex-1"
+                    >Connection check · {connectionStatusLabel(
+                      editor.savedConnectionChecks[selected.id] ?? null,
+                    )}</span
+                  >
+                  <ChevronDownIcon
+                    class="content-section-icon transition-transform group-open/connection-check:rotate-180 motion-reduce:transition-none"
+                    aria-hidden="true"
+                  /></summary
                 >
-                <div class="mt-3 space-y-3">
+                <div class="space-y-3 pb-3">
                   <Button
                     variant="outline"
                     size="sm"
@@ -464,7 +529,7 @@
                       ? "Checking…"
                       : "Check connection"}</Button
                   >
-                  <p class="text-xs text-muted-foreground">
+                  <p class="content-meta">
                     Checks metadata without running a model.
                   </p>
                   {#if editor.savedConnectionCheckErrors[selected.id]}<p
@@ -480,7 +545,7 @@
               </details>{/if}
           </main>
           {#if !selected?.builtIn}<footer
-              class="shrink-0 border-t border-hairline bg-layer-fill px-4 py-3"
+              class="shrink-0 border-t border-hairline px-5 py-2"
             >
               <ConnectionSaveActions
                 {editor}
@@ -489,11 +554,30 @@
                 onBack={() => leave(false)}
               />
             </footer>{/if}
-        </section>{/if}
+        </section>
+      {:else if fullPage}
+        <section
+          aria-label="Connection details"
+          class="min-h-0 flex-1 overflow-y-auto px-5 py-5"
+        >
+          <h2 class="content-section-title flex items-center gap-2">
+            <ServerIcon class="content-section-icon" aria-hidden="true" />Choose
+            a connection
+          </h2>
+          <p class="content-meta mt-2 max-w-lg">
+            Select a saved server or built-in runtime from the sidebar to review
+            its settings, check its connection, or choose which workflows use
+            it.
+          </p>
+          <Button class="mt-4" variant="outline" disabled={busy} onclick={add}
+            >Create connection</Button
+          >
+        </section>
+      {/if}
     </div>
-  {:else if session.messages.error}<div class="p-5">
+  {:else if inlineError}<div class="p-5">
       <p role="alert" class="text-sm text-destructive">
-        {session.messages.error}
+        {inlineError}
       </p>
       <Button class="mt-3" variant="outline" onclick={prepare}>Try again</Button
       >
@@ -544,6 +628,7 @@
 <style>
   .manager-body {
     display: flex;
+    flex-direction: column;
     flex: 1;
     min-height: 0;
     overflow: hidden;
@@ -552,20 +637,18 @@
     width: 100%;
     min-height: 0;
   }
+  /* The table keeps the full width and the detail sits under it, so the
+     columns that matter - endpoint, provider, used by - stay readable while
+     one connection is open. */
   .editing .connection-list {
-    display: none;
+    flex: 0 1 auto;
+    max-height: 46%;
+    border-bottom: 1px solid var(--hairline);
   }
-  .connection-fields :global([role="group"]) {
-    padding-top: 0.65rem;
-    padding-bottom: 0.65rem;
-    gap: 0.4rem;
-  }
-  @media (min-width: 760px) {
+  @media (max-height: 620px) {
+    /* Not enough height for both: the detail wins, as it did before. */
     .editing .connection-list {
-      display: block;
-      width: 270px;
-      flex-shrink: 0;
-      border-right: 1px solid var(--hairline);
+      display: none;
     }
   }
 </style>

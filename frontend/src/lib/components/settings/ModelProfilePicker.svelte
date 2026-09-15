@@ -43,7 +43,7 @@
 {#if profiles.length !== 1 || !selected || selected.id !== ID.Generic}
   <div class={compact ? "space-y-2" : "space-y-2 px-5 py-3"}>
     <div class="flex items-center gap-1">
-      <label for={id} class="text-sm font-semibold">Model profile</label>
+      <label for={id} class="text-[13px] font-medium">Model profile</label>
       {#if selected?.description}<FieldHelp
           label="About this model profile"
           text={selected.description}
@@ -51,7 +51,7 @@
     </div>
     {#if profiles.length === 1 && selected}
       <div
-        class="flex min-h-9 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm"
+        class="flex min-h-8 items-center gap-2 rounded-md border border-input bg-well px-3 text-[13px]"
         {id}
       >
         <ProviderIcon profile={selected.id} size={18} />{selected.name}

@@ -117,7 +117,7 @@
   }
 </script>
 
-<div class="flex flex-col gap-4">
+<div class="flex flex-col gap-3">
   <SettingsCard>
     <ValueRow
       id="microphone-select"
@@ -132,10 +132,7 @@
           value={microphoneChoice}
           onValueChange={onChooseMicrophone}
         >
-          <Select.Trigger
-            id="microphone-select"
-            class="h-auto w-full border-0 bg-transparent p-0 text-[15px] shadow-none focus-visible:ring-0"
-          >
+          <Select.Trigger id="microphone-select" class="w-full">
             <span class="flex min-w-0 items-center gap-2">
               {#if missing}
                 <TriangleAlertIcon
@@ -300,7 +297,7 @@
         description="Choose how much background sound to reject."
       >
         <RadioGroup.Root
-          class="grid-cols-1 gap-2 sm:grid-cols-2"
+          class="grid-cols-1 gap-1 @min-[420px]:grid-cols-2"
           value={settings.vadMode}
           onValueChange={chooseVADMode}
           aria-label="Voice activity detection mode"
@@ -308,7 +305,7 @@
           {#each VAD_MODES as mode (mode.value)}
             <Label
               for={`vad-mode-${mode.value}`}
-              class="flex cursor-pointer items-start gap-3 rounded-sm bg-transparent px-3 py-2.5 transition-colors hover:bg-accent/55"
+              class="flex cursor-pointer items-start gap-2.5 bg-transparent px-2 py-2 transition-colors has-data-checked:bg-accent-wash hover:bg-subtle-fill-hover"
             >
               <RadioGroup.Item
                 id={`vad-mode-${mode.value}`}
@@ -316,9 +313,7 @@
                 class="mt-0.5"
               />
               <span class="min-w-0">
-                <span class="block text-sm font-semibold text-foreground"
-                  >{mode.label}</span
-                >
+                <span class="content-value block">{mode.label}</span>
                 <span
                   class="mt-0.5 block text-xs leading-5 text-muted-foreground"
                 >

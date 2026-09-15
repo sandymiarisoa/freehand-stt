@@ -175,17 +175,25 @@ Browser fixtures should cover a fresh installation with no manual connections,
 recommended Nemotron realtime setup, supported catalog browsing without pulls,
 explicit download/cancel/retry, switching models, unsupported realtime, status
 refresh across windows, removal confirmation, and dirty-draft protection.
+The settings integration fixture switches a stopped NeMo inventory from Nemotron
+with realtime enabled to Parakeet through the manager and real SQLite owner.
+Assert that completed mode and the new model persist together, task preferences
+survive reload, switching back does not enable realtime, and independent manual
+Voice settings remain unchanged. Runtime error fixtures distinguish active work
+from save failures, redact private failure details, and verify retry admission.
+Repeat the model switch in native acceptance using already downloaded models;
+the deterministic fixtures do not start a runtime or perform inference.
 At compact desktop sizes, assert that provider-row install, selected-model download,
 progress/cancel, and start/stop remain in view without scrolling or Playwright's
 automatic click scrolling. Download completion must not implicitly start inference.
 Repeat from an alternative model's catalog row after scrolling to it: progress,
 Cancel, and terminal feedback must stay in the viewport without an additional
-scroll, including after the model becomes installed. Check quick-settings geometry
-puts Connection above the runtime model selector for Voice and audio files.
+scroll, including after the model becomes installed. Check the Voice and audio-file
+sidebars place Connection above Model and open the corresponding contextual options.
 Verify provider images load from bundled assets and agree across runtime headings,
 built-in Connection details/pickers, and managed task shortcuts. Check both themes;
 status text and action labels must stay readable independently of the artwork.
-Exercise CPU/CUDA status updates in quick settings and Connection details without
+Exercise CPU/CUDA status updates in workflow sidebars and Connection details without
 changing the Connection selection. Reopen real SQLite settings containing the
 `llama.cpp (CPU)` and `whisper.cpp (CPU)` default names: built-in names
 must be backend-neutral while instance preferences, selected IDs, and custom
@@ -199,6 +207,20 @@ The `managed-runtime` and `runtime-sources` browser suites cover the composed
 runtime section, including its setup/preferences and model-catalog components.
 Keep assertions at the visible controls and runtime commands so component
 extraction preserves confirmation, cancellation, and metadata-only browsing.
+
+`runtime-lifecycle-feedback.spec.ts` holds request acknowledgement and terminal
+events separately. Check immediate Start/Stop feedback, live warm-up stages,
+failure and cancellation recovery, workflow sidebar visibility, and a single
+backend-owned Restart. Channel-controlled Go lifecycle tests hold launch and exit
+to verify initial/progress/terminal publications, auto-start, and no relaunch after
+stop failure, cancellation, or shutdown.
+
+`default-session-lifecycle.spec.ts` remounts the real App with its default Session
+and generated runtime bindings. Start/Stop and status events must keep working
+after a development component replacement, with one active subscription and
+credential drafts cleared on teardown. The default Session survives cached-page
+suspension and disposes on actual WebView departure; injected fixture Sessions
+retain their component-owned teardown.
 
 Native acceptance uses only the explicitly selected model. Check installation
 from an official verified archive, NeMo's model pull, a real ready listener,
@@ -221,7 +243,7 @@ startup, rendering, clipboard, and selected-model inference observations:
   Browser tests inspect sources before installation without mutation calls,
   distinguish NeMo's model manager from direct downloads, and follow explicit
   CPU/CUDA preview choices without fetching files.
-- llama.cpp normal-output tests retain consent-gated memory-only capture, reject
+- llama.cpp normal-output tests retain bounded private memory-only capture, reject
   environment/config logging overrides, and qualify the exact pinned CPU binary
   with a model-free upstream warning through the owned launcher. This does not
   establish native viewer behavior or GPU inference acceptance.
@@ -244,27 +266,29 @@ startup, rendering, clipboard, and selected-model inference observations:
   terminal notification while preserving terminal-before-next-start event order.
 - Output checks cover 256 KiB/1,024-chunk/4 KiB-per-chunk limits, cursor deltas and
   truncation, interleaved streams, split UTF-8 and terminal controls, generation
-  fencing, opt-in reads, revocation without private-tail erasure, explicit Clear,
+  fencing, reader admission, revocation without private-tail erasure, explicit Clear,
   next-start/remove/shutdown cleanup, and the separate bounded parser prefix.
 - Use split and malformed controls to verify the display allowlist: bounded SGR
   colors/styles and erase-line progress may pass; OSC clipboard/link/title,
   DCS/APC/PM/SOS, queries, input modes, and alternate-screen controls may not.
   Check per-stream decoder isolation, bounded terminal scrollback/write queues,
-  eviction/reset propagation, and stale writes after close or revoked consent.
+  eviction/reset propagation, and stale writes after close or revoked access.
   Explicit Copy selection must copy only selected rendered text through the native
   boundary, never read the clipboard or react to upstream escape sequences.
-- Windowing and frontend state tests must cover viewer reuse, consent per opening or
-  runtime switch, bounded non-overlapping polling, late-read rejection, visible
+- Windowing and frontend state tests must cover immediate reads for visible embedded
+  runtime tabs, standalone consent per opening or runtime switch, viewer reuse,
+  bounded non-overlapping polling, late-read rejection, visible
   state clearing, and no process lifecycle calls from viewer actions. Browser
   fixtures must cover recommendation before installation, explicit acceptance,
   phase/elapsed display without fake percentages, **View output** during startup
-  from management and quick controls, warning/consent, read-only terminal rendering,
+  from management and quick controls, direct embedded display, standalone consent,
+  read-only terminal rendering,
   colors and carriage-return progress, local search, resize, selection/copy admission,
   follow/pause scrolling, Clear, close/reopen, and sparse upstream output. Use bounded
   synthetic output; viewer interactions must never send input or change process lifetime.
 
-`process-output.spec.ts` checks both themes at wide and narrow widths, stable
-consent geometry, terminal content fitting its viewport, and actual clicks on
+`process-output.spec.ts` checks the standalone viewer in both themes at wide and
+narrow widths, stable consent geometry, terminal content fitting its viewport, and actual clicks on
 search and Follow controls. Searching forward and backward to the same match
 must leave Copy enabled when the terminal still has a selection.
 
@@ -507,7 +531,7 @@ ownership, stale failure clearing, and preservation of unrelated command errors.
 Native review should include a speech-generation failure, a cancelled or failed
 audio save, failed Settings save before switching connections, and a dictation
 failure with a long explanation. Check that notices leave task controls reachable,
-Escape returns focus from Details, and opening the relevant settings window
+Escape returns focus from Details, and opening the relevant settings pane
 preserves the current work. These fixtures do not invoke inference or establish
 native file-dialog or window-focus acceptance.
 
@@ -561,18 +585,19 @@ Builds and fixture tests do not establish this interactive or live-server accept
 ## Task-local setup acceptance
 
 These are checks to perform, not a record of native acceptance. Run the affected
-flows separately on Windows and packaged macOS. Assert one dedicated Settings
-window with its own Session and inline Connections editor; Main retains task
-content and a separate synchronized Session. No third configuration window opens.
-Verify `SettingsReady` delivery of pending requests and `ShellReady` delivery of
-task returns, including startup, repeated opens, and native Settings close while
-a draft is dirty. General **Save** stays open; task **Save and return** hides
-Settings and reveals the correct task. About and history details retain their
-existing native lifecycle.
+flows separately on Windows and packaged macOS. Assert one main workspace and
+Session for global Settings, the Connections rail page, and contextual options.
+Voice, files, and speech keep their main result or composer visible while options
+are edited on the right. Test startup requests, repeated opens, page navigation,
+right-sidebar dismissal, and native close-to-hide with a dirty draft. Save must
+commit before continuing, Discard must restore applied values, and Keep editing
+must retain the current inspector and draft. Global Settings exposes only General,
+Shortcuts, Overlay, and Vocabulary; About and native history details retain their
+existing lifecycle. No additional configuration window opens.
 
 Check first-entry metadata discovery for Voice, Audio file, Cleanup, and Text to
 speech before model selection or optional-feature enablement. Controls within each renderer must reuse pending and completed results; committed
-settings events invalidate metadata coherently across Main and Settings. Delay a response, change the
+settings events invalidate metadata coherently across all configuration surfaces. Delay a response, change the
 connection, and verify the old result is rejected. Exercise empty lists, failures,
 explicit retry and deliberate picker re-entry without reactive retry loops.
 Automatic requests must use applied connections and empty renderer credential
@@ -585,7 +610,7 @@ be removed, and verify Save and return resumes the task's configuration with the
 File and speech setup must work without completing dictation setup. Choose or discover
 a model; test metadata access without invoking model inventories.
 
-Repeat from Transcription, Cleanup, and Text to speech Settings. Cancel an unchanged
+Repeat from contextual Transcription, Cleanup, and Speech options. Cancel an unchanged
 form; discard a changed form; inject a failed save and retry. Verify selections and
 unsaved task/model edits survive Keep editing, Save failures do not advance,
 and Discard applies no discarded edits. Test keyboard entry, Escape,
@@ -625,9 +650,9 @@ or inference are accessed. Browser coverage does not establish native Wails acce
 
 ## Settings navigation and validation acceptance
 
-The settings browser suite covers normal/narrow content scrolling, keyboard
-section changes, persistent connection actions, and an invalid Audio save made
-from History. Controlled save failures carry the Go validation cause shape;
+The configuration browser suite covers normal/narrow content scrolling, keyboard
+section changes, persistent connection actions, and validation that reveals the
+owning contextual section. Controlled save failures carry the Go validation cause shape;
 assertions cover the destination, focus, associated message, section marker,
 retained unrelated edits, and retry. Go config/settings fixtures separately
 verify both recording-limit modes, nested validation causes, safe error JSON,
@@ -645,7 +670,20 @@ commands. Their screenshots support visual review rather than replacing
 behavioral assertions. Inspect heading and label hierarchy, readable secondary
 text, status labels, and disclosure focus alongside the existing navigation,
 shortcut-recovery, source-provenance, and managed-runtime interaction suites.
+Apply the same visual review to Voice, audio files, Text to speech, History and
+its detail pane, Connections, runtimes, and global/contextual Settings. Check
+that key values stand out from helper text, neutral grouping surfaces remain
+subtle in both themes, and section icons supplement visible labels. Exercise
+narrow widths and zoom so added hierarchy does not hide actions or reduce
+transcript readability.
 Keep checks tied to user outcomes rather than exact class names or palette values.
+
+Runtime catalog coverage checks the same browsing controls before and after
+installation, family expansion and search, keyboard access to model sources,
+and disabled model actions while uninstalled or running. Browsing must make no
+runtime calls. Offline Go tests cover the published Whisper variant inventory,
+pin structure, completed-transcription qualification, and removal that preserves
+sibling models; they do not download or invoke catalog models.
 
 Repeat the audit interactively on Windows before native acceptance: scroll long
 pages and navigate by mouse/keyboard, use connection-editor Back/Cancel, save an
@@ -758,12 +796,12 @@ fake vault/startup adapter and do not establish interactive Windows acceptance.
 - WAV header, channel conversion, sample conversion, and duration bounds.
 - Per-recording device interruption delivery, intentional-stop suppression, stale-generation fencing, partial-audio cleanup, and retry after capture loss.
 - Startup configuration semantics.
-- Main/Settings window identity, startup visibility, singleton Settings reuse, retained draft preservation, section/origin validation, guarded Settings close-to-hide behavior, light/dark solid native colors, explicit Mica opt-in, launch-time versus saved-material state, main-window placement restoration, missing-display fallback, and owner-relative Settings/About/history-details geometry.
+- Main window identity, startup visibility, single-shell Settings navigation, retained draft preservation, section/origin validation, guarded shell close-to-hide behavior, light/dark solid native colors, explicit Mica opt-in, launch-time versus saved-material state, main-window placement restoration, missing-display fallback, and owner-relative About/history-details geometry.
 - Tray presentation mapping for live dictation, post-processing, VAD/silence, checkpoint, stored-file upload/streaming, completion, failure, cancellation, copy recovery, last activity, and main-window visibility. Tests must prove arbitrary renderer messages, transcript text, and file identity cannot enter labels or tooltips.
 - Overlay preference and appearance defaults, sparse-config compatibility, bounds validation, post-persistence runtime application, DPI/opacity/glow composition, idempotent live enable/disable/configure, current-state restoration, and shutdown fencing.
 - Frontend feature-owner tests beside `editor`, `files`, `history`, `speech`, and `messages` cover committed-settings synchronization, active-draft preservation, serialized quick saves, transient credential cleanup, file delta/snapshot ordering, history mutation ordering, and playback commands. `session.svelte.test.ts` covers composition, namespaced status bindings, aggregate busy state, and presentation-only teardown. `session-events.test.ts` executes the shared main/Settings subscription wiring with a typed event source: subscribe-before-snapshot, accepted-transition history refresh, stale-event rejection, delta-gap recovery, independent window drafts, unsubscribe/remount, and partial-registration cleanup. These are deterministic renderer tests, not native Windows acceptance.
 - The main view's transcript-list disclosure preference persists across launches, uses a safe default for missing or malformed values, and remains usable when WebView storage throws.
-- Immediate quick saves start from the applied snapshot, mutate only allowed task/model fields, send no credential changes, replace both snapshots only after backend confirmation, and preserve the applied state on failure. Endpoint and credential edits use Connections inside Settings. Settings transaction tests block persistence after native and credential mutation to prove renderer snapshots wait for a coherent commit, exercise reentrant post-commit publication, and inject shortcut, startup, STT credential, post-processing credential, persistence, and rollback failures.
+- Immediate controls in first-run readiness and explicit workflow mode switches start from the applied snapshot, mutate only allowed task/model fields, send no credential changes, replace both snapshots only after backend confirmation, and preserve the applied state on failure. Workflow sidebar quick controls persist immediately through the same transaction. Detailed options opened with the settings cog remain drafts until Save succeeds; a dirty contextual editor disables quick mutations. Endpoint and credential edits use the Connections rail page. Settings transaction tests block persistence after native and credential mutation to prove renderer snapshots wait for a coherent commit, exercise reentrant post-commit publication, and inject shortcut, startup, STT credential, post-processing credential, persistence, and rollback failures.
 - File-stream reliability fixtures count requests through the real service: parameter rejection, incompatible/malformed SSE, typed premature EOF, empty SSE, and buffered typed SSE never cause a second POST or cleanup of partial text. Explicit completed retry succeeds; original completed JSON uses one request. Partial failures remain copyable and retain a failed history outcome when enabled. Parser fixtures cover required final text, empty final replacement, missing/null fields, read/server errors, and legacy EOF compatibility.
 - Generic microphone fixtures require explicit JSON negotiation. Chat fixtures reject reported length limits even when credential redaction removes the diagnostic finish reason, preserve bounded usage metadata, and tolerate missing/other finish reasons without guessing truncation. Real microphone/file workflow fixtures verify raw delivery/copy, no second cleanup request, output-limit notices, discarded partial cleanup, and failed-processing metadata with history enabled, disabled, or absent as applicable.
 - Custom health-path fixtures verify origin, versioned, nested, and trailing-slash bases, plus one request only on both successful and failing health checks. Saved path semantics remain base-relative.
@@ -818,7 +856,7 @@ list is an acceptance procedure, not a claim that the checks have passed:
 14. With history enabled, force copy-required, open History without changing focus during dictation, and explicitly copy the retained Unicode transcript.
 15. Fill the visible history area and confirm entries scroll independently of the app shell. Expand a processed entry to read only its final transcript, enter and leave raw-versus-cleaned comparison, verify long sparse edits remain highlighted, verify wide rows compare side by side while narrow rows stack, and confirm a raw fallback remains visible in the metadata bar while collapsed. Collapse the entry from its sticky header, then remove it and confirm the other entries remain.
 16. Clear history, turn history off, and quit/restart; each action leaves the history view empty.
-17. From Connections inside Settings, test the displayed endpoint with both a stored credential and an unsaved bounded credential draft. Confirm status/timing is scoped to that connection. In workflow model settings, verify metadata discovery, selection without inference, and actionable DNS, TLS, HTTP, and offline failures without response bodies or key material.
+17. From the Connections rail page, test the displayed endpoint with both a stored credential and an unsaved bounded credential draft. Confirm status/timing is scoped to that connection. In workflow model settings, verify metadata discovery, selection without inference, and actionable DNS, TLS, HTTP, and offline failures without response bodies or key material.
 18. With System default selected, change the Windows default input during recording and confirm WASAPI reroutes or the app fails promptly and can restart. With an explicit USB microphone selected, unplug it during recording; confirm partial audio is not transcribed, the state leaves Recording, the saved choice remains, Refresh shows it again after reconnection, and the next recording succeeds.
 19. Choose a stored audio file and verify both **Stream transcript** on and off. Confirm the upload rail advances, streamed text appears progressively, completed mode appears only once, cancellation stops the request, copy returns the full text, optional history labels it as an audio file, and microphone recording is disabled while the file job is active. After selection, separately delete, replace, resize, and modify the file before Start; each must require reselection without uploading. A direct symbolic-link selection must be rejected.
 20. Try a file above the endpoint or reverse-proxy limit and confirm the HTTP 413 message identifies the server upload limit. No automatic retry or client-side split should occur.
@@ -831,16 +869,16 @@ list is an acceptance procedure, not a claim that the checks have passed:
 27. Start and cancel stored-audio work from a slow, disconnected, removable, or network-backed file and then choose tray Quit. Confirm shutdown remains bounded, releases the hotkeys/tray/audio resources, and no late status or warmup work recreates a native resource.
 28. Confirm the settings WebView cannot request microphone, camera, geolocation, notification, or clipboard-read permission. Inspect the generated service contract and confirm stored-audio selection is a zero-argument native-picker operation: no renderer call can supply an ungranted path, and status/events never contain the granted full path.
 29. In both Windows light and dark modes, confirm the default app shell is opaque and uses the product palette. Enable Mica, save, and confirm the current window remains unchanged with a restart notice; after tray Quit and relaunch, confirm Mica is visible through the intended shell surfaces. Disable it and repeat the restart check back to opaque mode. On a Windows version without Mica support, confirm the opted-in fallback remains legible and the default remains opaque.
-30. In quick settings, select saved connections and discovered models, and switch between **Custom instruction** and **S1-mini by Superwhisper**. Edit endpoint/authentication details only in Connections inside Settings. Confirm each successful change takes effect immediately and reports success in the main-screen message channel; invalid values preserve the prior applied configuration and report an actionable error. In full Cleanup settings, edit the custom instruction, exercise empty and multibyte-over-limit validation, restore the recommended instruction, save, restart, and confirm it persisted. Switch to S1-mini and confirm the custom editor disappears, the exact built-in instruction is read-only, and the effective control line changes with every styling step plus both structure and context radio choices. Switch back and confirm the custom instruction was preserved. Committed connection changes must invalidate stale metadata. Model pickers may perform bounded first-entry discovery; deliberate re-entry or explicit refresh may retry, but ordinary effects must not loop after failure.
+30. From each workflow sidebar, select saved connections and discovered models with the immediate controls; verify pending and failed saves preserve the confirmed values. Use the settings cog for detailed options, and switch between **Custom instruction** and **S1-mini by Superwhisper** under Cleanup. Edit endpoint/authentication details only on the Connections page. Confirm contextual edits remain drafts until **Save** succeeds and the main workflow remains visible. A failed save must retain the editable draft, preserve the prior applied configuration, and report an actionable error. Discard must restore the applied values. In Cleanup settings, edit the custom instruction, exercise empty and multibyte-over-limit validation, restore the recommended instruction, save, restart, and confirm it persisted. Switch to S1-mini and confirm the custom editor disappears, the exact built-in instruction is read-only, and the effective control line changes with every styling step plus both structure and context radio choices. Switch back and confirm the custom instruction was preserved. Committed connection changes must invalidate stale metadata. Model pickers may perform bounded first-entry discovery; deliberate re-entry or explicit refresh may retry, but ordinary effects must not loop after failure.
 31. Run the development app from a terminal and exercise recording start/stop/cancel, one VAD checkpoint, post-processing fallback, stored-file selection/transcription/cancel, both connection tests, settings save, and tray Quit. Confirm lifecycle records have stable components/correlation fields, use `duration_ms`, and produce one terminal outcome per start. Search the output for the real test credential, transcript phrases, model IDs, selected file name/path, endpoint path/query, custom headers, and target-window identity; none may appear. Confirm a failed title-bar action is visible in the app rather than only the WebView console.
 32. In **Settings → Overlay**, preview all four layouts, six anchors, three surfaces, four recording visualizers, three visibility policies, and both motion policies before saving. Confirm the real native surface cycles through speech, silence, countdown, transcription, post-processing, delivery, copy-required, and failure; draft controls update the same HWND; closing/discarding restores applied settings; and starting a real dictation preempts preview. Turn the saved overlay off and confirm preview can temporarily create it but Stop/Settings close destroys it. For real dictation, confirm the target monitor is captured at recording start, placement stays inside that monitor's work area at 100%/150%/200% DPI and with taskbars on every edge, and focus changes do not move it mid-operation. Exercise minimum/default/maximum size, opacity, edge distance, and glow without entrance replay, extra taps, or GDI/thread leaks. Windows Animation Effects off and Reduced must stop decorative motion while the countdown remains live; a Windows contrast theme must force a readable opaque system palette. Detailed must show only fixed labels, the normalized shortcut, bounded elapsed time, and checkpoint count—never transcript, filename, provider, endpoint/model, prompt, credential, or raw error content. Across all cases verify unchanged focus/caret/target identity, click-through behavior, no taskbar/Alt+Tab entry, bounded shutdown, and ordinary dictation/insertion behavior.
-33. Navigate the main, native Settings, native About, and native Transcription details windows plus every remaining in-window dialog using only Tab, Shift+Tab, Enter, Space, Escape, Alt+F4, and the settings sidebar's Arrow/Home/End keys. Confirm every Settings action reuses/focuses one native window at the requested section, section selection and focus move together, Main quick controls are inert while that window is visible, clean close hides immediately, and dirty close offers Save, Discard, or Keep editing without losing a draft on cancellation or failed save. Reopen Settings and confirm it reloads the latest Go-owned values and no credential draft survived. Confirm every About action reuses/focuses one window and that native chrome, Alt+F4, and its footer all hide it. Transcription details opens independently without trapping focus in its source window; Tab can focus the details region for keyboard scrolling. With Narrator, confirm recording/file phases, settings saves, errors, and notices are announced once without reading transcript text unexpectedly. Turn Windows **Animation Effects** off while the app is running: WebView decoration and native-overlay entrance/morph/stage motion must stop, while the overlay's automatic-stop countdown continues to advance and all states remain visually distinct. Repeat in a Windows contrast theme and confirm keyboard focus remains visible.
+33. Navigate the activity rail, command palette, Settings pane and Connections editor, native About and Transcription details windows, and remaining dialogs using only the keyboard. Verify Tab/Shift+Tab, Enter, Space, Escape, Alt+F4, rail focus, panel Arrow/Home/End navigation, and Ctrl+K (⌘K on macOS). Every Settings entry point must resolve to the requested section in Main. Dirty exits through the rail, palette, runtime links, native task requests, Done, and close offer Save, Discard, or Keep editing; failed saves retain the draft. Hiding clears credential drafts and displayed runtime output, disables output reads, and stops shortcut capture/overlay preview. Reopening a visible Runtime output tab begins fresh reads for its retained target. Connection creation's Save and return resumes the originating workflow. Contextual Save applies in place; Done closes the options. About and Transcription details reuse their own windows and hide from native close or footer. With Narrator, state changes are announced without repeated timer or transcript readings. Repeat with Windows Animation Effects disabled and in a contrast theme; countdowns continue while decorative motion stops and keyboard focus remains visible.
 34. Open About in a development build and a packaged build. Confirm its compact metadata matches `build/config.yml`, the executable's Details tab, and Installed apps; only the development build shows **Development**. Run `wails3 task common:check:release-info`, deliberately make one generated Windows version field stale, and confirm the check and package build fail until `wails3 task common:update:build-assets` repairs it.
-35. Move and resize the main window on a non-primary display, open Settings, About, and Transcription details, and confirm each hidden auxiliary window opens centered over the main window without leaving that display's usable work area. Move an already-open auxiliary window and invoke it again; confirm it is focused without jumping. Hide and reopen it; confirm it returns relative to the main window rather than retaining independent placement. Choose tray Quit, relaunch, and confirm only the main window restores its normal size and screen-relative position. Then disconnect the saved display and relaunch; confirm the main window is fully visible and centered on the primary work area.
+35. Move and resize the main window on a non-primary display. Open Settings and confirm it stays inside the main workspace. Open About and Transcription details, and confirm each hidden auxiliary window opens centered over the main window without leaving that display's usable work area. Move an already-open auxiliary window and invoke it again; confirm it is focused without jumping. Hide and reopen it; confirm it returns relative to the main window rather than retaining independent placement. Choose tray Quit, relaunch, and confirm only the main window restores its normal size and screen-relative position. Then disconnect the saved display and relaunch; confirm the main window is fully visible and centered on the primary work area.
 36. In direct-input mode, compare short, long, multiline, and non-ASCII transcripts in Notepad, a Chromium text field, VS Code or another editor, a terminal, and an Office-style rich-text target. Ordinary text should appear in one immediate update; long text should complete without visible fixed-delay stepping, truncation, or broken surrogate pairs. Change focus during a long insertion and confirm delivery stops before the next dispatch rather than redirecting its remainder. Confirm the terminal records only UTF-16 unit count, batch count, duration, strategy, and bounded failure stage—never text or target identity.
-37. Resize the result/history divider by dragging and with the keyboard, quit through the tray, and relaunch. Confirm the split restores and both panes scroll independently. At the 560x560 minimum window size, verify Result/History view switching and that audio, transcription, cleanup, and delivery popovers stay within the window without moving the transcript. Exercise nested selectors, Escape focus return, pending saves, and failed-save recovery. Check both light/dark palettes and opaque/Mica modes. Clearing WebView site data may reset pane widths but must not alter Go-owned settings or transcript history.
-38. In an isolated user-data directory, place `settings.db` and `settings.json` fixtures before launch. Confirm first-run defaults and an empty connection catalog, with those files and legacy credentials untouched. Save and reopen `freehand.db`. Exercise corrupt/newer SQLite, foreign database identity, locked files, and uncertain save recovery: both windows must pause new work and ordinary saves; Retry reloads committed state, and only explicit Reset archives and replaces the current database. Restore a `freehand.db` upgrade backup with Freehand closed. Verify credential references remain coherent without exposing keys.
-39. Configure a dedicated local or remote `/v1/audio/speech` endpoint under **Speech playback**. Press **Test**, confirm the authenticated `GET /v1/models` result populates the model picker, enter the provider's voice ID, and save. Then press **Preview**. Verify the fixed preview phrase plays, pause/resume preserve progress, restart begins at zero, and stop releases the session.
+37. Toggle the primary sidebar, bottom panel, and contextual secondary sidebar from the title bar; drag both dividers and resize them with the keyboard. Quit through the tray and relaunch to check visibility, size, and selected bottom-tab restoration. Cross the 700px width, 1100px width, and 560px height thresholds: primary navigation becomes an explicit overlay, History details auto-hide but remain reachable through the right-side overlay, and the bottom panel hides without losing its tab or visibility preference. Details must never stack below the reader. Check independent scrolling, overlay Escape/backdrop dismissal, focus return, and restoration when room returns. Open task options from the sidebar and confirm the transcript or composer stays visible. Exercise nested selectors, Save/Discard/Keep editing, pending saves, and failed-save recovery in light/dark and opaque/Mica modes. Clearing WebView site data may reset presentation preferences but must not alter Go-owned settings or retain history/output.
+38. In an isolated user-data directory, place `settings.db` and `settings.json` fixtures before launch. Confirm first-run defaults and an empty connection catalog, with those files and legacy credentials untouched. Save and reopen `freehand.db`. Exercise corrupt/newer SQLite, foreign database identity, locked files, and uncertain save recovery: the workspace must pause new work and ordinary saves; Retry reloads committed state, and only explicit Reset archives and replaces the current database. Restore a `freehand.db` upgrade backup with Freehand closed. Verify credential references remain coherent without exposing keys.
+39. Configure a dedicated local or remote `/v1/audio/speech` connection on the Connections page and select it in **Text to speech → Speech** options. Press **Test**, confirm the authenticated `GET /v1/models` result populates the model picker, enter the provider's voice ID, and save. Then press **Preview**. Verify the fixed preview phrase plays, pause/resume preserve progress, restart begins at zero, and stop releases the session.
 40. Enable History, create raw-only and successfully cleaned entries, and verify Listen reads the selected final version. Complete a stored-audio transcript with History off and verify its result can still be listened to. Start a toggle or hold recording during playback and confirm playback stops before capture begins without transcript/history mutation.
 41. Under **Voice**, **Audio file**, **Cleanup**, and **Text to speech**, confirm the saved microphone/checkpoint, stored-audio, cleanup, and speech-generation budgets reload exactly and the fixed safety ceilings remain visible but not editable. Against a deliberately slow endpoint, set each budget low and confirm the affected phase reports a timeout, logs bounded `error_kind=timeout`, and records the budget in opt-in History details. A cleanup timeout must still insert or expose the raw transcript and mark the fallback. A stored-file request configured above 90 seconds must remain active beyond 90 seconds; Cancel must still end immediately as cancellation rather than timeout. Exercise the streamed transcript safety ceiling with a deterministic fixture and confirm accepted text remains copyable under an explicit partial-result message rather than stopping silently.
 42. In a packaged build, verify About reports automatic updates enabled, **Check now** opens the Wails update window, and declining leaves the running executable unchanged. Disable automatic checks, restart, and confirm no background request occurs. Using a controlled newer release, verify the exact `freehand-windows-amd64.exe` asset passes `SHA256SUMS`, stages successfully, and restarts into the version shown by About. Exercise both an alpha-to-non-prerelease upgrade and a later non-prerelease upgrade. A checksum mismatch must fail closed. Confirm this direct-binary path does not claim to run or update through NSIS.
@@ -908,7 +946,7 @@ with inference or publish private inputs/configuration.
 - vLLM cleanup: test a specific compatible text model, an optional token limit,
   and reasoning-off behavior. For S1-mini, reasoning must remain off even with
   the optional custom switch disabled. Preserve trained prompts and raw fallback.
-- Verify Settings, first-run readiness, home quick settings, profile switching,
+- Verify Settings, first-run readiness, workflow sidebar navigation, profile switching,
   and the public backend matrix. Include vLLM-Omni speech using the Qwen3-TTS
   acceptance steps below.
 
@@ -963,15 +1001,16 @@ and playback. Check keyboard navigation, dirty-draft guards, restart persistence
 and active-request isolation. Verify clean defaults: capsule/envelope/minimal,
 bottom-center, 85% opacity, 70% glow, and an unassigned Show Freehand shortcut.
 Assign then clear that shortcut and confirm tray access remains available.
-Repeat selection from Home quick settings, including failed saves and role filtering;
-confirm its selectors match Settings and its cards use the same single border
-and fill. Browser fixtures and native builds do not replace interactive Windows acceptance.
+Repeat selection in each workflow's contextual options, including role
+filtering and a failed Save. Confirm failed saves retain the draft,
+successful saves update the current workflow, and sidebar summaries reflect
+the applied values. Browser fixtures and native builds do not replace interactive Windows acceptance.
 Use only explicitly selected models for deliberate live inference acceptance.
 
-For connection navigation, open Settings → Connections and Manage connections from
+For connection navigation, open Connections from the rail and Manage connections from
 each workflow picker: both open the list. Edit connection opens the selected row.
-At wider widths, keep the searchable list visible beside the editor; below 760px,
-All connections must return to the list. Verify all seven representative entries
+Keep the searchable list in the shared primary sidebar; below 700px,
+its title-bar toggle must expose the compact list overlay. Verify all seven representative entries
 fit comfortably in a normal window, list and form scroll independently, and Save
 and Cancel remain visible at compact heights. Check both action menus for readable
 single-line labels, workflow icons/checkmarks, and compact disabled Delete state.
@@ -993,7 +1032,8 @@ menus, dialogs, inputs, focused controls, disabled controls, and recording overl
 Confirm neutral charcoal surfaces and brand-blue accents in solid dark mode, readable muted text,
 and unchanged status colours. Compare light mode and dark Mica over both light
 and dark desktop backgrounds; the Mica result depends on Windows and wallpaper.
-Check native active/inactive title bars and startup background after relaunch.
+Check the workspace title bar, auxiliary native active/inactive captions, and
+startup background after relaunch.
 Browser material fixtures establish CSS composition, not native DWM acceptance.
 
 For model-profile acceptance, verify Generic is shown beneath the model in
@@ -1025,8 +1065,9 @@ catalog entry alone does not establish support. Do not probe model inventories.
 - Switch freely between modified model drafts, save all edited options together,
   and test invalid batch rollback. Discard must restore applied values and clear
   every model draft; saved catalog objects must not mutate through a draft.
-- Verify quick model controls restore options before saving, without discovery
-  or inference. Settings pickers also list remembered IDs without a server probe.
+- Verify first-run readiness model controls restore options before saving, without
+  discovery or inference. Workflow sidebar model rows open Settings, whose pickers
+  also list remembered IDs without a server probe.
 - Switch connections, restart, rename, rotate a key, change the URL/backend,
   duplicate, remove an inactive use, and delete: check the documented retention
   rules. Forgetting must clear active selection and survive restart.
@@ -1055,7 +1096,7 @@ probes are part of these checks.
 - Saved-connection checks assess that saved entry only, without selecting it.
   Fixtures must assert GET-only metadata routes and avoid inference calls. Check
   that returned diagnostic text does not reflect user instructions or credentials.
-- Review the results panel in light/dark themes and a narrow settings window.
+- Review the results panel in light/dark themes and a narrow Settings pane.
   Pair browser presentation checks with native Windows tests and builds.
 
 ### Voice discovery and Kokoro playback
@@ -1091,17 +1132,18 @@ history, including stale, active, cleared, and closed results. Fake speech clien
 verify backend-owned Voice text selection without retaining history and the 4,096
 Unicode code-point boundary, including supplementary characters.
 Browser workspace fixtures cover desktop pointer/keyboard resizing, restored
-pane widths, narrow view switching, and quick-settings popovers with nested
-device/model selectors and asynchronous save outcomes. They use the actual home
+pane sizes and visibility, responsive region hiding, and task-sidebar links with
+asynchronous save outcomes in contextual configuration. They use the actual home
 components with mocked Wails services and no inference traffic. Workspace checks
 also cover Voice Listen with history off, hover/keyboard action tooltips, expiring
 copy confirmation, and preservation of supplementary Unicode in the composer.
 Copy-feedback unit tests cover repeated clicks, out-of-order completion, failure,
 and teardown.
-The split-restoration test waits for the persisted percentage to match the
-separator's final value before reloading, then checks the restored pixel width.
-A storage change alone is insufficient because a debounced earlier drag write
-can precede the keyboard adjustment.
+Layout restoration checks wait for the saved size to match the separator's final
+value before reloading, then check the restored geometry and visibility. Inspect
+the stored payload: only layout booleans, bounded sizes, and the bottom tab belong
+there, never configuration drafts, credentials, transcript text, History search/selection,
+output runtime identity, consent, or output bytes.
 Renderer coverage checks that speech commands preserve the composer draft and
 that file readiness excludes microphone and shortcut prerequisites while retaining
 endpoint and authentication checks. Interactive acceptance should switch between
@@ -1110,7 +1152,7 @@ results can be copied and cleared with history disabled.
 
 ### Transcription details window
 
-Open details from both recent history and Settings > History. Verify one independently resizable native window opens without blocking either source window. Open a different completed entry while details is visible or minimized: the same window must update and focus. Check long model names and response metadata at the minimum 480 x 400 size, light/dark appearance, and Mica after restart. Native close, Alt+F4, Escape, and the Close button must hide details without quitting Freehand; reopening and renderer reload must recover the selected run correctly. Delete the selected entry, clear history, disable retention, and evict the entry with later runs: stale details must disappear. Automated history service tests cover invalid/pending IDs, selection switching, deep-copy isolation, removal, and close/shutdown behavior. Native runtime acceptance remains separate from the Windows compile.
+Open Transcription details from Recent. Verify one independently resizable native window opens without blocking the workspace. Open a different completed entry while details is visible or minimized: the same window must update and focus. Check long model names and response metadata at the minimum 480 x 400 size, light/dark appearance, and Mica after restart. Native close, Alt+F4, Escape, and the Close button must hide details without quitting Freehand; reopening and renderer reload must recover the selected run correctly. Delete the selected entry, clear history, disable retention, and evict the entry with later runs: stale details must disappear. Automated history service tests cover invalid/pending IDs, selection switching, deep-copy isolation, removal, and close/shutdown behavior. Native runtime acceptance remains separate from the Windows compile.
 
 ## Realtime and Connection Manager acceptance
 
@@ -1134,11 +1176,11 @@ Fresh-store fixtures exercise completed and realtime Voice configurations, indep
 
 For native acceptance, open Voice → Transcription: there must be no separate Live button. Choose NeMo-Speech.cpp, its loaded model, and the explicit Nemotron profile; enable Realtime inside that panel. Verify live results and one-row captions. Turn realtime off and record using the same connection/model. Switch to an ineligible model/connection and verify mode is disabled. Configure Audio file separately, switch between tasks, and verify independent connection/model/language settings and truthful footer status. Restart and repeat. Test Voice-only first-run setup with Audio file unconfigured. These native checks are separate from successful builds and deterministic tests.
 
-Language dropdown acceptance: check the searchable language picker and the qualified Nemotron select inside quick-settings popovers at short and normal window heights. Menus must remain within the window, scroll internally with the wheel, and expose the final option through keyboard navigation.
+Language dropdown acceptance: open contextual Transcription options from the workflow sidebar or title-bar right toggle and check the searchable language picker and qualified Nemotron select at short and normal window heights. Repeat in first-run readiness, where available controls save immediately. Menus must remain within the window, scroll internally with the wheel, and expose the final option through keyboard navigation.
 
 ### Shared vocabulary acceptance
 
-Check Vocabulary at regular and small Settings window sizes in both themes. Edit names, independently toggle Voice/files, save, and reopen. Follow Vocabulary links from a dirty Voice/file settings draft and verify that edits survive navigation. Confirm the NVIDIA mark appears for NeMo in quick controls, connections, and the Vocabulary page. Switch supported/unsupported models and preserve the list and use preferences. For NeMo, verify limits and strength, then test completed Voice, audio files, and realtime against only the explicitly selected model when native inference acceptance is authorized. Backend fixtures cover fresh-schema round trips, immutable workflow projections, Unicode limits, omission, and multipart speech contexts without automatic inference.
+Check Vocabulary at regular and small workspace sizes in both themes. Edit names, independently toggle Voice/files, save, and reopen. Follow Vocabulary links from a dirty Voice/file settings draft and verify that edits survive navigation. Confirm the NVIDIA mark appears for NeMo in quick controls, connections, and the Vocabulary page. Switch supported/unsupported models and preserve the list and use preferences. For NeMo, verify limits and strength, then test completed Voice, audio files, and realtime against only the explicitly selected model when native inference acceptance is authorized. Backend fixtures cover fresh-schema round trips, immutable workflow projections, Unicode limits, omission, and multipart speech contexts without automatic inference.
 
 ## Qwen3-ASR and vLLM realtime
 
@@ -1154,7 +1196,7 @@ captions, stop/finalization, cancellation, and focus-safe delivery. Toggle back 
 completed transcription and verify saved language/context controls return.
 Select Audio file independently. Confirm shared vocabulary applies to completed
 audio only and remains saved when realtime is active. Check the Qwen model mark
-and restricted language menus in quick settings and Settings. Successful builds
+and restricted language menus in first-run readiness and Settings. Successful builds
 and synthetic transport checks do not substitute for native microphone acceptance.
 
 ## Audio file and speech workspace layout
@@ -1185,9 +1227,10 @@ and error states without invoking inference. File summary, response-mode switch,
 actions, and result pane keep their positions across these transitions. Long file
 names truncate without displacing actions; errors remain readable in the result.
 The speech editor and its bottom playback area retain their heights across idle,
-generating, playing, paused, completed, and failed states. Check the Speech settings
-popover, nested connection menu, Escape focus return, draft retention across tabs,
-and visible keyboard focus in both themes. The application Settings button must
+generating, playing, paused, completed, and failed states. Open Speech options from the
+Text to speech Settings cog or sidebar, check its connection/model selectors and Escape focus return,
+and verify failed saves retain drafts while Save applies in place and Done closes options without clearing the composer.
+Check visible keyboard focus in both themes. The application Settings button must
 remain on screen when the shortcut hint is hidden at compact widths.
 
 ### Transcript selection and keyboard reading
@@ -1227,7 +1270,10 @@ clearing the draft without releasing audio, and explicit replacement with the ne
 submitted text. Ctrl+Enter cannot start a second generation while one is running.
 History expansion fixtures exercise real mouse-wheel events over the list at 560px
 and 1156px, scrolling in both directions, same-entry updates preserving the reading
-position, and newest-entry arrival returning the single viewport to the top.
+position, and newest-entry arrival returning the compact list viewport to the top.
+In the full History pane, check sidebar-list scrolling independently of the selected
+reader and run details, and verify the compact sidebar overlay leaves the main
+area usable after selection.
 
 Transcript playback fixtures at 560px and 1000px verify a single row no taller than
 48px, keyboard seeking, pause/resume and Stop visibility, keyboard access to
@@ -1267,7 +1313,8 @@ order aligned with the displayed groups.
 
 Review Connections at normal and compact window sizes: list-first navigation,
 collapsed diagnostics for the selected entry, active-use summaries, and independent
-list/form scrolling. Review the shared model picker in every workflow and quick panel,
+list/form scrolling. Open the shared model picker from every workflow's Settings
+section and first-run readiness,
 including a failed save, retry, manual ID, and long list. Sticky Settings headings
 must leave focused validation controls visible. These checks use metadata or
 synthetic fixtures and require no inference inventory probes.
@@ -1278,11 +1325,12 @@ excess phrase and byte budget, context consumption, unsupported workflows, and
 bounded oversized-draft feedback. Speech quick-save tests cover remembered voice
 restoration, task-speed preservation, credential/draft exclusion, and failed saves.
 
-The optional `polish.spec.ts` browser checks exercise speech voice save/failure/retry
-at a short desktop size and live text following, reader scrollback, finalization,
+The optional `polish.spec.ts` browser checks exercise speech sidebar navigation to
+Settings, voice/model/speed save, failure, retry, discard, and composer preservation
+at a short desktop size, plus live text following, reader scrollback, finalization,
 Jump to latest, and the next recording. Fixtures contain synthetic text and invoke
-no inference. Recheck the shared model/voice menus and speed slider in both the
-popover and full Settings page, including keyboard entry and nested-menu scrolling.
+no inference. Recheck the shared model/voice menus and speed slider in Settings,
+including keyboard entry and nested-menu scrolling.
 
 In native Windows, review Vocabulary with duplicate and over-limit draft lines,
 activate a line link and verify selection/scrolling, then discard the draft. Check
@@ -1326,7 +1374,8 @@ Native acceptance, with one explicitly selected model at a time:
    one row, and changing focus prevents insertion. Disconnect mid-recording and
    confirm provisional text is never inserted.
 4. Select Qwen3-TTS 1.7B CustomVoice on vLLM-Omni. Check the nine preset voices,
-   ten languages, style field, and keyboard navigation in full and quick settings.
+   ten languages, style field, and keyboard navigation in Settings, including entry
+   from the Text to speech sidebar.
    Edit language/style and Preview before Save. Verify ordinary playback retains
    applied settings until Save; Discard restores them. Switch models and back,
    restart, and verify saved options remain independent per connection/model.
@@ -1340,7 +1389,9 @@ unsaved draft, clickable switch labels, collapsed Audio/Overlay tuning, keyboard
 slider changes, and draft preservation after navigation. A synthetic validation
 failure on speech padding must reopen its disclosure and focus the slider at
 both desktop and narrow widths. Minimal overlay surfaces must disable glow
-adjustment without resetting its value. Fixtures use no capture or inference.
+adjustment without resetting its value. Local runtime must appear neither in the
+Settings section list nor its search results; the activity-rail action must still
+open runtime management through the normal draft guard. Fixtures use no capture or inference.
 
 The workflow streamlining fixture checks all four workflow pages at 860px and
 520px: request controls start collapsed, edits survive collapsing and navigation,
@@ -1349,14 +1400,149 @@ also exposes its temperature and timeout controls. Speech preview stays beside
 voice selection. All workflow fixtures use synthetic profiles and service
 responses; they do not contact inference servers.
 
+### Main workspace title bar
+
+Browser fixtures verify the Windows File/View/Help menu actions, caption-button
+labels and binding calls, maximize/restore state updates, keyboard operation,
+and close-time draft decisions. macOS presentation fixtures verify reserved
+traffic-light space and the absence of duplicate renderer caption controls.
+Inspect drag-region CSS so command, menu, and layout controls remain outside
+Windows caption rectangles and opt out of inherited dragging on macOS.
+
+Run the [native title-bar checks](../../safety/native-test-checklist/#main-workspace-title-bar)
+on each platform. A passing browser suite or Windows executable compile cannot
+establish native hit testing, Snap Layouts, mixed-DPI dragging, macOS traffic-light
+positioning, fullscreen transitions, or close-to-hide event delivery. Record
+Windows interactive evidence separately from packaged macOS acceptance; macOS
+remains unverified until those checks run there. Recheck the framed About,
+Transcription details, and standalone Process output windows independently.
+
+### Shared workspace layout
+
+Exercise the title-bar primary, bottom, and secondary visibility controls across
+Voice, Audio file, Text to speech, Connections, Settings, Runtimes, and History. Primary content
+must follow the area without resetting the wide-window visibility preference.
+Below 700px wide, it starts hidden and opens as an overlay through the same
+title-bar control. Check Escape, backdrop dismissal, page navigation, focus on
+opening, and focus return when a region hides or crosses a breakpoint.
+
+The bottom panel retains Recent, Runtime output, or Diagnostics across page
+changes and user hiding. Global Settings must use the full vertical workspace
+without rendering the bottom panel. Returning to another page restores the selected
+tab and the user's visibility preference, including an intentionally hidden panel.
+This suppression must not rewrite stored layout choices. The panel automatically
+hides below 560px viewport height and restores the user's visibility choice and
+tab when room returns. Contextual options
+and History details occupy only the secondary sidebar: auto-hide them below 1100px and open them on
+demand as a right-side overlay through the title-bar toggle. Check Escape and
+backdrop dismissal; never stack details below the transcript, and restore the
+wide-window preference on widening. History opens details on each visit at
+1100px or wider, even if they were closed on an earlier visit. Closing must remain
+respected through selection and history updates within the visit. Its page-header
+Details button opens the selected run's details at all widths; narrower windows
+must start with details hidden. Check both thin
+dividers' larger pointer targets, drag limits, keyboard arrows, Home/End limits,
+separator names, orientation, and focus indicators.
+
+Voice, Audio file, and Text to speech keep detailed configuration closed until
+opened explicitly, including on wide windows and after leaving History. Verify
+quick connection/model/language controls, speech voice/speed, and shared cleanup
+save immediately without opening the secondary sidebar. A clean open inspector
+must leave workflow runtime controls usable; dirty edits still block mutations.
+`workflow-settings-visibility.spec.ts` covers explicit section links, resizing,
+closure, and the draft guard; `workflow-quick-controls.spec.ts` covers quick-save
+confirmation, failure recovery, and independent Voice/file selections. Initial Voice readiness must show the
+selected runtime's warm-up or the pending server metadata check beside Record.
+Record waits for runtime readiness or check completion; failed metadata remains
+explicit and retryable without claiming inference compatibility. Existing
+recordings retain Stop and Cancel throughout readiness changes.
+
+`quick-runtime-surfaces.spec.ts` covers the local runtime controls adjacent to
+connection selection, including remote transcription with local cleanup disabled.
+Check immediate pending actions, startup progress, cancellation failure/retry,
+current-task and dirty-draft locks, exact-instance management navigation, and
+output routing on compact and wide windows. The controls must never start or
+download anything merely by rendering. A selected runtime with unavailable status
+must keep its control surface visible. `session-runtime-admission.svelte.test.ts`
+keeps metadata probes independent from runtime mutation admission while preserving
+settings, credential, quick-save, setup, and recovery locks.
+
+Check the contextual section sets: Voice has Transcription, Audio, Cleanup,
+Vocabulary, Overlay, and Delivery; Audio file has Transcription, Cleanup, and
+Vocabulary; Text to speech has Speech; History has
+Details and History settings. Editing keeps the main content visible. Switching
+pages closes contextual options, and the right toggle opens the current workflow's
+options or History details. Test Save, Discard, and Keep editing on navigation and
+close, including a failed or pending save. Every contextual sidebar must expose
+one reachable X in its existing header, including when section tabs scroll.
+Check keyboard activation and focus return to the title-bar toggle, and verify
+the X and History's page-header Details action use the same draft guard.
+`right-sidebar-controls.spec.ts` covers these controls and History's responsive
+opening policy alongside the existing layout and configuration fixtures.
+Global Settings must not duplicate
+workflow or connection sections; Connections opens from its own rail action.
+Shared Vocabulary and Overlay options must identify their scope, stay beside the
+workflow when opened locally, and reflect the same saved values in global Settings.
+Voice's Delivery view must expose only microphone transcript delivery, excluding
+startup and appearance. Global General, Shortcuts, Overlay, and Vocabulary remain
+reachable. Verify shared-control drafts use the same save/discard guards without
+creating a second settings copy in layout storage.
+Unconfigured speech must keep its draft editable beside compact Configure speech
+guidance, with Speak disabled until configured.
+
+Open Runtime output and verify the initial target is a running runtime, or the
+first installed runtime if none is running. Output must appear directly without
+a Show output step. Select another runtime's tab by pointer and keyboard, then
+switch pages: navigation must not choose another runtime. Entering global Settings
+must release the reader because the panel is hidden there; returning retains the
+runtime target and resumes direct reads. Hiding the bottom panel, changing panel
+tabs or runtime targets, hiding the workspace or document, and teardown must
+disable retrieval, clear viewer output, and fence late reads. No reader may enable
+while hidden. Reopening starts fresh reads for the retained target, whose private
+tail may still be available. Removing the selected runtime must not silently pick
+another. The standalone Process output window still requires Show output on each
+opening or runtime switch. Diagnostics checks use the
+explicitly selected workflow's saved connection and remain metadata-only.
+Browser fixtures establish renderer behavior; native window-hide events,
+clipboard behavior, and runtime process lifecycles require separate OS acceptance.
+
 ### Workspace history and error presentation
 
-History expansion checks cover a fully readable newest result, single-line older
-previews, keyboard disclosure, new arrivals resetting manual expansion/comparison,
-cleanup updates preserving it, deleting the newest entry, clearing/repopulating,
-and a full unretained file result. These are shared list behaviors in Home and
-Settings. Native acceptance should confirm the same transitions after real
-recordings and cleanup completion.
+The full History pane must combine retention status, History settings, Clear history,
+search, source filters, and retained transcript previews in one sidebar. Exercise
+matches in final, raw, and processed text and file base names, including text absent
+from the displayed preview. Combine search with All, Voice, and Audio files filters;
+check no-match feedback and returning to the complete list. These controls browse
+only the existing in-memory entries and must not persist transcript text or trigger
+metadata discovery, inference, or file reads.
+
+Select an entry and verify its expanded reader, Copy, optional Listen, raw/cleaned
+comparison, and removal remain available beside the same run's full details.
+Switch between Details and History settings without replacing the selected reader;
+retention edits use the same guarded save and discard lifecycle.
+Neither selecting an entry nor browsing its details should call the native
+details-window bindings. Check selection after cleanup
+updates, new arrivals, deletion, eviction, disabling retention, and clearing the
+full history while a filter hides some entries. At widths below 700px, exercise
+the sidebar toggle, keyboard access, overlay dismissal, and selecting an entry
+without trapping or obscuring the reader. The right details sidebar must be
+available at 1100px and wider and automatically hide below that width without
+stacking or resetting its wide-window visibility preference. Its title-bar
+toggle must still expose an inspectable right-side overlay at narrow widths.
+Verify pointer and keyboard
+resizing. The list, reader, and details must scroll independently
+without an outer page scrollbar. At a 360px details-pane width, retain readable
+long identifiers, model names, timestamps, usage/cost/performance values, and
+every checkpoint field. Check component-scoped heading associations and the
+embedded 34px sidebar header, then verify the standalone details window from Recent
+still exposes the same fields and lifecycle.
+
+Compact Recent history lists retain their existing expansion checks:
+a fully readable newest result, single-line older previews, keyboard disclosure,
+new arrivals resetting manual expansion/comparison, cleanup updates preserving it,
+deleting the newest entry, clearing/repopulating, and a full unretained file result.
+Native acceptance should confirm the same transitions after real recordings and
+cleanup completion.
 
 Synthetic workspace checks exercise history action menus with keyboard opening,
 Escape focus restoration, deletion of the selected entry, and raw/cleaned copy.
@@ -1371,8 +1557,9 @@ Synthetic picker tests cover keyboard access to help, nested-popover Escape
 focus restoration, profile descriptions at desktop and narrow widths, and
 restricted-language search by code with navigation to the end of a scrollable
 list. They verify that draft selections survive page navigation, custom language
-values remain reachable after an unmatched search, and failed immediate Voice
-saves restore the previous language. Fixture profiles are renderer data only;
+values remain reachable after an unmatched search, and failed Voice Settings saves
+retain the draft profile/language while applied values remain unchanged. A successful
+retry returns to Voice; reopening Settings must show the saved values. Fixture profiles are renderer data only;
 no model inventory or inference call is involved.
 
 ### Vocabulary presentation
@@ -1389,3 +1576,69 @@ these controls against the selected profiles and saved settings.
 CSS scale: content scrolls, Save remains fixed and visible, and the document has
 no extra vertical overflow. It also checks Voice uses the shared settings group.
 Native WebView/DPI acceptance remains separate from these browser fixtures.
+
+## Workbench shell regression coverage
+
+Run `npm run test:browser` from `frontend`. The fixtures render the real shell,
+settings editor, workflow controls, and runtime inventory against synthetic
+services. Settings requests enter through the same readiness/navigation event
+contract; fixtures do not create a second Settings iframe. Tests cover guarded
+rail and palette navigation, connection drafts, hidden credential cleanup,
+record/stop/cancel admission, runtime lifecycle recovery, capability-gated
+streaming, and panel collapse/keyboard behavior.
+
+For an isolated local test server, set `PLAYWRIGHT_PORT` to an unused loopback
+port. `PLAYWRIGHT_REUSE_SERVER=1` explicitly reuses a running fixture server; CI
+always starts its own server. These are browser checks, not acceptance of native
+recording, insertion, permissions, or runtime inference. Run the native checklist
+on each supported OS and architecture before release.
+
+### Host resource readout
+
+`go test ./internal/resources` covers CPU delta math, rate limiting, invalid and
+reset counters, fresh baselines after pauses, independent metric failures,
+recovery, and lifecycle cancellation. GPU tests cover per-engine aggregation,
+adapter identity normalization, and independent memory availability. The Windows
+native counter tests read CPU/RAM, WDDM activity, and adapter memory without
+starting processes or models. Frontend resource-state tests cover
+serialized polling, hide/resume races, stale-value expiry, failed reads, and
+disposal. `resources.spec.ts` covers the real status bar's stable width, keyboard
+popover behavior, high usage, unavailable/recovery states, compact layout, and
+stopping/restarting reads on native visibility events using synthetic counters,
+plus GPU activity, dedicated-memory saturation, and Apple unified-memory labels.
+
+For native acceptance, compare the readout with Task Manager on Windows and
+Activity Monitor on packaged Apple Silicon and Intel macOS. Expect sampling
+interval differences and a RAM estimate that includes reclaimable pages; do not
+equate it with macOS memory pressure. Verify idle CPU, normal user-authorized
+local runtime activity, repeated hide/minimize/restore, sleep/wake, and Quit.
+Compare GPU activity during an explicitly authorized workload with the relevant
+system monitor, including compute engines on Windows. Check dedicated VRAM and
+shared RAM separately, and verify Apple GPU memory is not added to system RAM or
+given an invented VRAM capacity. Missing driver statistics must show unavailable.
+Confirm CPU warms up after a long pause, no metric sticks on an old value, and
+runtime processes are unaffected by the resource popover. Native macOS execution
+and comparison remain required separately from Windows tests and compilation.
+
+### Page-content consistency
+
+Review Voice, files, speech, readiness, History, Settings, Connections, and runtime
+details in both themes at normal and compact widths. Headers and the first content
+column should share the page gutter; related settings should read as divided rows.
+`page-headers.spec.ts` compares the main page header's 44px height, top edge,
+title inset, and title baseline while navigating all seven rail destinations in
+both themes at 560px and 1280px. Keep one visible main header; workflow status,
+connection details, and runtime recovery notices belong below its fixed divider.
+Compare fields, pickers, buttons, disclosures, and keyboard focus across pages.
+Check the selected underline in bottom-panel, runtime-output, and History-view
+tabs, plus the edge marker in Settings, Connections, and runtime navigation.
+Resize individual panes while the window remains wide: Connection search results,
+VAD tuning, shortcut controls, and editor actions must adapt to their available
+width. Verify one keyboard stop per disclosure, reachable search-clear actions,
+and separate loading, unavailable, and empty states. Audio-file readiness must
+describe file transcription without microphone or shortcut prerequisites.
+Check that transcript text retains its reading size, docked playback/output
+controls remain reachable, and notices do not obscure compact settings. Existing
+workspace, readiness, settings-layout, visual-hierarchy, speech-playback, runtime,
+and process-output browser suites exercise these surfaces with synthetic data.
+Repeat the native WebView review at supported DPI scales before release.

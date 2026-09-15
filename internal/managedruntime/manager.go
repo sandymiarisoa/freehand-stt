@@ -352,9 +352,12 @@ func (m *Manager) change(update func([]Instance) ([]Instance, error)) error {
 		return err
 	}
 	if m.checkIdle != nil {
-		err = m.checkIdle()
+		if err := m.checkIdle(); err != nil {
+			r.Finish(false)
+			return errors.New("Could not change managed runtimes. Finish active work and try again.")
+		}
 	}
-	if err == nil && m.save != nil {
+	if m.save != nil {
 		m.mu.Lock()
 		r.transaction.joinable = true
 		m.mu.Unlock()
@@ -365,7 +368,7 @@ func (m *Manager) change(update func([]Instance) ([]Instance, error)) error {
 	}
 	r.Finish(err == nil)
 	if err != nil {
-		return errors.New("Could not change managed runtimes. Finish active work and try again.")
+		return errors.New("Could not save managed runtime changes. Review Connections and task settings, then try again.")
 	}
 	return nil
 }
@@ -441,8 +444,11 @@ func (m *Manager) install(id string, install func(*worker) error) error {
 func (m *Manager) RefreshCatalog(r InstanceRequest) error {
 	return m.operation(r.InstanceID, (*worker).RefreshCatalog)
 }
-func (m *Manager) Start(r InstanceRequest) error  { return m.operation(r.InstanceID, (*worker).Start) }
-func (m *Manager) Stop(r InstanceRequest) error   { return m.operation(r.InstanceID, (*worker).Stop) }
+func (m *Manager) Start(r InstanceRequest) error { return m.operation(r.InstanceID, (*worker).Start) }
+func (m *Manager) Stop(r InstanceRequest) error  { return m.operation(r.InstanceID, (*worker).Stop) }
+func (m *Manager) Restart(r InstanceRequest) error {
+	return m.operation(r.InstanceID, (*worker).Restart)
+}
 func (m *Manager) Cancel(r InstanceRequest) error { return m.operation(r.InstanceID, (*worker).Cancel) }
 func (m *Manager) Remove(r InstanceRequest) error { return m.operation(r.InstanceID, (*worker).Remove) }
 func (m *Manager) DownloadModel(r ModelRequest) error {

@@ -1,4 +1,7 @@
+import { openSection } from "./context-navigation";
 import { test, expect } from "./fixtures";
+
+const selectSection = openSection;
 
 for (const theme of ["light", "dark"]) {
   for (const width of [860, 520]) {
@@ -10,8 +13,12 @@ for (const theme of ["light", "dark"]) {
         colorScheme: theme === "dark" ? "dark" : "light",
       });
       // Native shortcut policy is metadata; no keyboard capture is performed.
-      await page.route("**/wails/runtime", (route) =>
-        route.fulfill({
+      await page.route("**/wails/runtime", async (route) => {
+        if (route.request().postDataJSON()?.object === 6) {
+          await route.fallback();
+          return;
+        }
+        await route.fulfill({
           json: ["toggle", "show", "hold"].map((action) => ({
             action,
             required: false,
@@ -20,16 +27,16 @@ for (const theme of ["light", "dark"]) {
             modifierOnlyMinimum: action === "hold" ? 2 : 0,
             externalAvailabilityKnown: false,
           })),
-        }),
-      );
+        });
+      });
       await page.goto(`/tests/browser/app/?workflows&pickers&theme=${theme}`);
-      await page.locator('[data-settings-section="general"]').click();
+      await selectSection(page, "general");
       await page.locator("#show-window-on-launch").click();
       if (theme === "dark")
         await expect(page.locator("html")).toHaveClass(/dark/);
       else await expect(page.locator("html")).not.toHaveClass(/dark/);
       const save = page.getByRole("button", {
-        name: "Save and return",
+        name: "Save",
         exact: true,
       });
       await expect(save).toBeEnabled();
@@ -76,8 +83,11 @@ for (const theme of ["light", "dark"]) {
           .toBeGreaterThanOrEqual(4.5);
       }
 
-      for (const section of ["server", "shortcuts"]) {
-        await page.locator(`[data-settings-section="${section}"]`).click();
+      await page
+        .getByRole("button", { name: "Discard changes", exact: true })
+        .click();
+      for (const section of ["server", "shortcuts"] as const) {
+        await selectSection(page, section);
         if (section === "shortcuts")
           await expect(
             page.getByRole("group", { name: "Toggle recording", exact: true }),

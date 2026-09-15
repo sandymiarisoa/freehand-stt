@@ -26,6 +26,7 @@ import (
 	"github.com/tnware/freehand-stt/internal/platform"
 	"github.com/tnware/freehand-stt/internal/postprocess"
 	"github.com/tnware/freehand-stt/internal/releaseinfo"
+	"github.com/tnware/freehand-stt/internal/resources"
 	settingsservice "github.com/tnware/freehand-stt/internal/settings"
 	"github.com/tnware/freehand-stt/internal/shortcut"
 	"github.com/tnware/freehand-stt/internal/storage"
@@ -49,7 +50,6 @@ const (
 	settingsChangedEvent        = "settings:changed"
 	settingsOpenEvent           = "settings:open"
 	settingsCloseRequestedEvent = "settings:close-requested"
-	settingsVisibilityEvent     = "settings:visibility"
 	aboutVisibilityEvent        = "about:visibility"
 )
 
@@ -95,8 +95,6 @@ type App struct {
 	mainWindow      *windowController
 	trayPopover     *windowController
 	shell           *shellNavigation
-	settingsWindow  *windowController
-	settingsShell   *shellNavigation
 	aboutWindow     *windowController
 	detailsWindow   *windowController
 	outputWindow    *windowController
@@ -140,21 +138,19 @@ func New(opts Options) (*App, error) {
 	}
 
 	a := &App{
-		opts:           opts,
-		storage:        store,
-		settings:       settings,
-		mainWindow:     &windowController{},
-		trayPopover:    &windowController{},
-		shell:          &shellNavigation{},
-		settingsWindow: &windowController{},
-		settingsShell:  &shellNavigation{},
-		aboutWindow:    &windowController{},
-		detailsWindow:  &windowController{},
-		outputWindow:   &windowController{},
-		windowState:    windowState,
-		mainPlacement:  mainPlacement,
-		logger:         logger,
-		wailsLog:       rootLogger.With("component", "wails"),
+		opts:          opts,
+		storage:       store,
+		settings:      settings,
+		mainWindow:    &windowController{},
+		trayPopover:   &windowController{},
+		shell:         &shellNavigation{},
+		aboutWindow:   &windowController{},
+		detailsWindow: &windowController{},
+		outputWindow:  &windowController{},
+		windowState:   windowState,
+		mainPlacement: mainPlacement,
+		logger:        logger,
+		wailsLog:      rootLogger.With("component", "wails"),
 	}
 
 	// The hold hook is referenced by the service before it exists, so
@@ -261,7 +257,9 @@ func New(opts Options) (*App, error) {
 		a.hideAbout,
 		a.aboutWindow.open,
 	)
-	windowing.ConfigureSettings(a.windowing, windowing.SettingsNavigation{Ready: a.settingsReady, Visible: a.settingsWindow.open, Finish: a.finishSettings})
+	// Settings lives in the main window, so its visibility is the main
+	// window's and its ready handshake is the shell's.
+	windowing.ConfigureSettings(a.windowing, windowing.SettingsNavigation{Ready: a.shellReady, Visible: a.mainWindow.open, Finish: a.finishSettings})
 	a.configureProcessOutput()
 	windowing.ConfigureTrayPopover(a.windowing, windowing.TrayPopoverNavigation{OpenMain: a.showMain, Hide: a.hideTrayPopover, Visible: a.trayPopover.open})
 	windowing.ConfigureConnections(a.windowing, windowing.ConnectionNavigation{
@@ -276,6 +274,7 @@ func New(opts Options) (*App, error) {
 	})
 	a.services = []application.Service{
 		application.NewService(a.buildInfo),
+		application.NewService(resources.NewService()),
 		application.NewService(a.history),
 		application.NewService(a.settingsService),
 		application.NewService(a.managedRuntime),
@@ -456,7 +455,6 @@ func (a *App) onStarted(*application.ApplicationEvent) {
 	// without post-creation movement or a visible placement correction.
 	a.newMainWindow()
 	a.newTrayPopoverWindow()
-	a.newSettingsWindow()
 	a.newAboutWindow()
 	a.newHistoryDetailsWindow()
 	a.newProcessOutputWindow()

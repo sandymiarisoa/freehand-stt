@@ -40,11 +40,11 @@
 </script>
 
 <section
-  class="rounded-xl border border-border bg-card px-5 py-4 shadow-xs"
+  class="border-t border-hairline py-3"
   aria-label={inactive ? "Saved manual connection" : "Active connection"}
 >
   <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-    <label for={`saved-connection-${purpose}`} class="text-sm font-semibold"
+    <label for={`saved-connection-${purpose}`} class="text-[13px] font-medium"
       >Connection</label
     >
     <div class="min-w-44 flex-1">
@@ -76,7 +76,7 @@
     >
       {connectionTargetLabel(selected, session.runtime.instances)}
     </p>
-  {:else}<p class="mt-2 text-[13px] text-muted-foreground">
+  {:else}<p class="mt-2 text-xs text-muted-foreground">
       {entries.length
         ? "Choose a saved connection to configure this feature."
         : "Add a server connection or set up a local runtime. Built-in connections appear automatically."}

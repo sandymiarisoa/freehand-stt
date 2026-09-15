@@ -13,17 +13,23 @@
   import type { SettingsEditor } from "$lib/stores/editor.svelte";
   import ConnectionSelect from "$lib/components/settings/ConnectionSelect.svelte";
   import { Switch } from "$lib/components/ui/switch";
+  import { Input } from "$lib/components/ui/input";
+  import { Textarea } from "$lib/components/ui/textarea";
   import type { ManagedRuntimeState } from "$lib/stores/managed-runtime.svelte";
   import ManagedRuntimeControls from "./ManagedRuntimeControls.svelte";
+  import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
 
   let {
     editor,
-    settings,
+    settings: suppliedSettings,
     disabled,
-    draft = false,
-    setup = false,
+    draft: draftMode = false,
+    setup: setupMode = false,
+    sidebar = false,
+    onOpenAdvanced,
     onAddConnection,
     runtime,
+    runtimeWorkBusy = false,
     onManageRuntime = () => {},
   }: {
     editor: SettingsEditor;
@@ -31,10 +37,23 @@
     disabled: boolean;
     draft?: boolean;
     setup?: boolean;
+    /** Flat applied controls for the workflow sidebar; advanced options remain in the inspector. */
+    sidebar?: boolean;
+    onOpenAdvanced?: () => void;
     onAddConnection: (purpose: Purpose) => void;
     runtime?: ManagedRuntimeState;
+    runtimeWorkBusy?: boolean;
     onManageRuntime?: () => void;
   } = $props();
+  const uid = $props.id();
+  const draft = $derived(draftMode && !sidebar);
+  const setup = $derived(setupMode && !sidebar);
+  const settings = $derived(
+    sidebar ? (editor.applied ?? suppliedSettings) : suppliedSettings,
+  );
+  // The workspace remains mounted while Settings is open. Draft controls keep
+  // their validation IDs; quick/setup controls need their own label targets.
+  const controlID = (id: string) => (draft ? id : `${uid}-${id}`);
   const cfg = $derived(settings.voiceTranscription);
   const instanceID = $derived(cfg.managedInstanceID ?? "");
   const managed = $derived(!!instanceID);
@@ -91,6 +110,11 @@
   );
   const busy = $derived(
     disabled ||
+      (sidebar &&
+        (!editor.applied ||
+          editor.dirty ||
+          editor.quickSettingsPending.length > 0 ||
+          settings.configuration.recoveryRequired)) ||
       (managed && runtime?.isBusy(instanceID)) ||
       editor.saving ||
       editor.isQuickSettingsPending("voice-transcription"),
@@ -99,7 +123,11 @@
   const availableModels = $derived(
     editor.currentVoiceConnection?.modelIDs ?? [],
   );
+  const realtimeAvailable = $derived(
+    !!profile?.capabilities.realtime && !!backend?.capabilities.realtime,
+  );
   function chooseModel(model: string) {
+    if (busy || managed) return false;
     return draft
       ? editor.chooseModel(Purpose.Voice, model)
       : editor.updateQuickSettings(
@@ -108,6 +136,7 @@
         );
   }
   function update(patch: Partial<Settings["voiceTranscription"]>) {
+    if (busy) return;
     if (draft) {
       if (patch.model !== undefined)
         editor.chooseModel(Purpose.Voice, patch.model);
@@ -122,32 +151,48 @@
     void editor.testAppliedConnection(Purpose.Voice);
   }
   function setRealtime(realtime: boolean) {
-    if (busy) return;
+    if (busy || (sidebar && realtime && !realtimeAvailable)) return;
     update({ realtime });
   }
 </script>
 
-<div class={draft ? "flex flex-col gap-5" : "space-y-4"}>
+<div
+  class={draft
+    ? "flex flex-col gap-3"
+    : sidebar
+      ? "flex min-w-0 flex-col gap-2"
+      : "space-y-4"}
+  class:voice-sidebar={sidebar}
+>
   {#if !draft}
-    {#if !setup}<h3 class="text-sm font-semibold">Transcription</h3>{/if}
+    {#if !setup && !sidebar}<h3 class="text-[13px] font-semibold">
+        Transcription
+      </h3>{/if}
     <div class="space-y-1.5">
-      <label for="voice-connection" class="text-sm font-semibold"
-        >Connection</label
+      <label
+        for={controlID("voice-connection")}
+        class="text-[13px] font-semibold">Connection</label
       >
       <div class="flex gap-2">
         <ConnectionSelect
-          id="voice-connection"
+          id={controlID("voice-connection")}
           catalog={settings.savedConnections}
           runtimeInstances={runtime?.instances}
           purpose={Purpose.Voice}
+          compact={sidebar}
           disabled={busy || testing}
-          onChange={(change) => editor.changeConnection(change)}
+          onChange={(change) =>
+            busy || testing
+              ? Promise.resolve(false)
+              : editor.changeConnection(change)}
           onAdd={() => onAddConnection(Purpose.Voice)}
         />
       </div>
     </div>
     {#if managed && runtime}
       <ManagedRuntimeControls
+        {sidebar}
+        workBusy={runtimeWorkBusy}
         {instanceID}
         {runtime}
         disabled={disabled ||
@@ -160,6 +205,8 @@
   {#if draft}
     <SettingsCard>
       {#if managed && runtime}<ManagedRuntimeControls
+          {sidebar}
+          workBusy={runtimeWorkBusy}
           {runtime}
           {instanceID}
           {disabled}
@@ -175,10 +222,22 @@
       title="Transcription options"
       description="Language, realtime, and recognition hints"
     >
-      <div class="space-y-4 p-4">{@render optionalControls()}</div>
+      <div class="space-y-4 py-3">{@render optionalControls()}</div>
     </SettingsDisclosure>
+  {:else if sidebar}
+    {@render recognitionControls()}
+    {#if onOpenAdvanced}<button
+        type="button"
+        class="flex min-h-7 w-full items-center justify-between gap-2 border-t border-hairline pt-1 text-left text-xs text-secondary-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onclick={onOpenAdvanced}
+        >More transcription options<ChevronRightIcon
+          class="size-3 shrink-0"
+          aria-hidden="true"
+        /></button
+      >{/if}
   {:else if draft}{@render finishingControls()}{:else}{@render optionalControls()}{/if}
   {#if !draft}<QuickSaveStatus
+      quiet={sidebar}
       fields={["voice-transcription"]}
       pending={editor.quickSettingsPending}
       saved={editor.quickSettingsSaved}
@@ -188,7 +247,8 @@
 
 {#snippet modelControls()}
   <RuntimeModelPicker
-    id="voice-model"
+    {sidebar}
+    id={controlID("voice-model")}
     value={cfg.model}
     compact={!draft}
     immediate={!draft}
@@ -211,14 +271,14 @@
         }
       : undefined}
   />
-  <ModelProfilePicker
-    id="voice-profile"
-    value={cfg.modelProfile}
-    profiles={settings.modelProfiles.voiceTranscription ?? []}
-    disabled={busy}
-    compact={!draft}
-    onChange={chooseProfile}
-  />
+  {#if !sidebar}<ModelProfilePicker
+      id={controlID("voice-profile")}
+      value={cfg.modelProfile}
+      profiles={settings.modelProfiles.voiceTranscription ?? []}
+      disabled={busy}
+      compact={!draft}
+      onChange={chooseProfile}
+    />{/if}
 {/snippet}
 
 {#snippet optionalControls()}
@@ -229,52 +289,58 @@
 {#snippet recognitionControls()}
   {#if profileNotice}<p
       class={draft
-        ? "px-5 py-3 text-xs text-muted-foreground"
+        ? "py-3 text-xs text-muted-foreground"
         : "text-xs text-muted-foreground"}
       role="status"
     >
       {profileNotice}
     </p>{/if}
-  {#if profile?.capabilities.realtime}
+  {#if sidebar ? realtimeAvailable || cfg.realtime : profile?.capabilities.realtime}
     <div
       class={draft
-        ? "flex items-center justify-between gap-4 px-5 py-3.5"
-        : "flex items-center justify-between gap-3 border-t border-hairline pt-3"}
+        ? "flex items-center justify-between gap-4 py-3"
+        : sidebar
+          ? "flex min-h-7 items-center justify-between gap-3"
+          : "flex items-center justify-between gap-3 border-t border-hairline pt-3"}
     >
       <div>
-        <label for="voice-realtime" class="text-sm font-semibold"
-          >Realtime transcription</label
+        <label
+          for={controlID("voice-realtime")}
+          class="text-[13px] font-semibold"
+          >{sidebar ? "Live dictation" : "Realtime transcription"}</label
         >
-        <p class="mt-1 text-xs text-muted-foreground">
-          Show words as you speak, using this connection and model.
-        </p>
+        {#if !sidebar}<p class="mt-1 text-xs text-muted-foreground">
+            Show words as you speak, using this connection and model.
+          </p>{/if}
       </div>
       <Switch
-        id="voice-realtime"
-        checked={cfg.realtime}
+        id={controlID("voice-realtime")}
+        bind:checked={() => cfg.realtime, setRealtime}
         disabled={busy ||
+          (sidebar && !cfg.realtime && !realtimeAvailable) ||
           (!managed && !cfg.realtime && (!connectionID || !cfg.model))}
-        onCheckedChange={setRealtime}
       />
     </div>
   {/if}
   {#if cfg.realtime && cfg.modelProfile === ID.Qwen3ASR}
     <p
       class={draft
-        ? "px-5 py-3.5 text-xs leading-relaxed text-muted-foreground"
+        ? "py-3 text-xs leading-relaxed text-muted-foreground"
         : "text-xs leading-relaxed text-muted-foreground"}
     >
-      Qwen realtime uses automatic language detection. Language, context,
-      vocabulary, and temperature hints apply only with realtime off.
+      {#if sidebar}Language is detected automatically in live dictation.
+      {:else}Qwen realtime uses automatic language detection. Language, context,
+        vocabulary, and temperature hints apply only with realtime off.{/if}
     </p>
   {/if}
   {#if (profile?.capabilities.languageHint || profile?.languages?.length) && (!cfg.realtime || profile?.realtimeLanguageHint)}
-    <div class={draft ? "space-y-2 px-5 py-3.5" : "space-y-1.5"}>
-      <label for="voice-language" class="text-sm font-semibold"
+    <div class={draft ? "space-y-2 py-3" : "space-y-1.5"}>
+      <label for={controlID("voice-language")} class="text-[13px] font-semibold"
         >Spoken language</label
       >
       <LanguagePicker
-        id="voice-language"
+        id={controlID("voice-language")}
+        immediate={!draft}
         restricted={!!profile.languages?.length}
         languages={profile.languages?.length
           ? profile.languages
@@ -284,15 +350,14 @@
       />
     </div>
   {/if}
-  {#if !cfg.realtime && profile?.capabilities.transcriptionPrompt}
-    <div class={draft ? "space-y-2 px-5 py-3.5" : "space-y-1.5"}>
-      <label for="voice-prompt" class="text-sm font-semibold"
+  {#if !sidebar && !cfg.realtime && profile?.capabilities.transcriptionPrompt}
+    <div class={draft ? "space-y-2 py-3" : "space-y-1.5"}>
+      <label for={controlID("voice-prompt")} class="text-[13px] font-semibold"
         >Context hint</label
-      ><textarea
-        id="voice-prompt"
-        rows="2"
-        maxlength="8192"
-        class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+      ><Textarea
+        id={controlID("voice-prompt")}
+        rows={2}
+        maxlength={8192}
         disabled={busy}
         value={cfg.transcriptionOptions.prompt}
         onchange={(event) =>
@@ -301,7 +366,8 @@
               ...cfg.transcriptionOptions,
               prompt: event.currentTarget.value,
             },
-          })}></textarea>
+          })}
+      />
     </div>
   {/if}
 {/snippet}
@@ -313,18 +379,18 @@
       title="Request settings"
       description="Timeout and supported temperature controls"
     >
-      <div class="space-y-4 px-5 py-3.5">{@render requestControls()}</div>
+      <div class="space-y-4 py-3">{@render requestControls()}</div>
     </SettingsDisclosure>
   {:else}
     {@render requestControls()}
   {/if}
   {#if cfg.realtime}
     <div class="flex items-center justify-between gap-3">
-      <label for="voice-captions" class="text-sm font-semibold"
+      <label for={controlID("voice-captions")} class="text-[13px] font-semibold"
         >Live overlay captions</label
       >
       <Switch
-        id="voice-captions"
+        id={controlID("voice-captions")}
         checked={cfg.captions}
         disabled={busy}
         onCheckedChange={(captions) => update({ captions })}
@@ -343,10 +409,11 @@
 {#snippet requestControls()}
   {#if !cfg.realtime && profile?.capabilities.transcriptionTemperature}
     <div class="flex items-center justify-between gap-3">
-      <label for="voice-temperature-override" class="text-sm font-semibold"
-        >Override temperature</label
+      <label
+        for={controlID("voice-temperature-override")}
+        class="text-[13px] font-semibold">Override temperature</label
       ><Switch
-        id="voice-temperature-override"
+        id={controlID("voice-temperature-override")}
         checked={cfg.transcriptionOptions.temperatureOverride}
         disabled={busy}
         onCheckedChange={(temperatureOverride) =>
@@ -358,13 +425,12 @@
           })}
       />
     </div>
-    {#if cfg.transcriptionOptions.temperatureOverride}<input
+    {#if cfg.transcriptionOptions.temperatureOverride}<Input
         aria-label="Temperature"
         type="number"
         min="0"
         max="1"
         step="0.1"
-        class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
         disabled={busy}
         value={cfg.transcriptionOptions.temperature}
         onchange={(event) =>
@@ -378,15 +444,14 @@
   {/if}
   {#if draft && !cfg.realtime}
     <div class="space-y-1.5">
-      <label for="voice-timeout" class="text-sm font-semibold"
+      <label for={controlID("voice-timeout")} class="text-[13px] font-semibold"
         >Recording request timeout (seconds)</label
-      ><input
-        id="voice-timeout"
+      ><Input
+        id={controlID("voice-timeout")}
         type="number"
         min="10"
         max="3600"
         step="10"
-        class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
         disabled={busy}
         value={cfg.timeoutSeconds}
         onchange={(event) =>

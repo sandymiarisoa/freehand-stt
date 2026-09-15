@@ -1,7 +1,6 @@
 <script lang="ts">
   import StatusBadge from "$lib/components/common/StatusBadge.svelte";
-  import { SETTINGS_NAVIGATION } from "$lib/navigation";
-  import LocalRuntimeSection from "./sections/LocalRuntimeSection.svelte";
+  import { SETTINGS_NAVIGATION, SETTINGS_SECTIONS } from "$lib/navigation";
   import VocabularySection from "./sections/VocabularySection.svelte";
   import { setContext, tick, untrack } from "svelte";
   import {
@@ -13,9 +12,11 @@
   import SavedConnectionPicker from "$lib/components/settings/SavedConnectionPicker.svelte";
   import { Purpose } from "$bindings/savedconnection";
   import LoaderCircleIcon from "@lucide/svelte/icons/loader-circle";
+  import XIcon from "@lucide/svelte/icons/x";
   import { Button } from "$lib/components/ui/button";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import Notifications from "$lib/components/shell/Notifications.svelte";
+  import PaneHeader from "$lib/components/home/PaneHeader.svelte";
   import SettingsNav from "$lib/components/settings/SettingsNav.svelte";
   import VoiceTranscriptionSettings from "$lib/components/home/VoiceTranscriptionSettings.svelte";
   import AudioSection from "$lib/components/settings/sections/AudioSection.svelte";
@@ -37,8 +38,13 @@
     session = $bindable(),
     visible = true,
     active = $bindable(),
+    inspector = false,
+    sections,
+    onRevealSection,
     navigationRef = $bindable(null),
     onClose,
+    onCloseSidebar,
+    onOpenRuntimes = onClose,
     onSaved = () => {},
     saveReturnsToTask = false,
     decisionOpen = false,
@@ -55,8 +61,16 @@
     session: Session;
     visible?: boolean;
     active: SettingsSectionID;
+    /** Render contextual configuration within the secondary sidebar. */
+    inspector?: boolean;
+    sections?: SettingsSectionID[];
+    /** Reveal an out-of-scope validation target without discarding this draft. */
+    onRevealSection?: (section: SettingsSectionID) => void;
     navigationRef?: HTMLElement | null;
     onClose: () => void;
+    onCloseSidebar?: () => void;
+    /** Leaves configuration for the runtime pane on the rail. */
+    onOpenRuntimes?: () => void;
     onSaved?: () => void;
     saveReturnsToTask?: boolean;
     decisionOpen?: boolean;
@@ -69,8 +83,58 @@
     onStopOverlayPreview: () => void;
   } = $props();
 
+  /** Terms are separated by newlines or commas. */
+  const SPLIT_TERMS = /[\r\n,]/;
+  const uid = $props.id();
+  const inspectorPanelID = `${uid}-inspector-content`;
+  const inspectorSections = $derived(
+    (sections ?? SETTINGS_SECTIONS.map((entry) => entry.id))
+      .filter((id) => id !== "local-runtime")
+      .map(sectionByID),
+  );
+  const inspectorLabels: Partial<Record<SettingsSectionID, string>> = {
+    "voice-transcription": "Transcription",
+    server: "Transcription",
+    speech: "Speech",
+    general: "Delivery",
+  };
+  function inspectorTabID(id: SettingsSectionID) {
+    return `${uid}-inspector-${id}`;
+  }
+  function sectionLabel(id: SettingsSectionID) {
+    return inspector && id === "general"
+      ? "Transcript delivery"
+      : sectionByID(id).label;
+  }
   const section = $derived(sectionByID(active));
+  const sectionTitle = $derived(sectionLabel(active));
+  const sectionBlurb = $derived(
+    inspector && active === "general"
+      ? "Choose how completed microphone transcripts reach your application."
+      : section.blurb,
+  );
+  const sharedNote = $derived(
+    !inspector
+      ? ""
+      : active === "processing" || active === "vocabulary"
+        ? "Changes apply to Voice and audio files."
+        : active === "overlay" || active === "general"
+          ? "These preferences are also available in Settings."
+          : "",
+  );
+  const vocabularyTermCount = $derived(
+    (session.editor.draft?.vocabulary.terms ?? "")
+      .split(SPLIT_TERMS)
+      .map((term) => term.trim())
+      .filter(Boolean).length,
+  );
   const dirty = $derived(session.editor.dirty);
+  const quickSavePending = $derived(
+    session.editor.quickSettingsPending.length > 0,
+  );
+  // Quick controls save the confirmed snapshot and replace the draft on ack.
+  // Keep every detailed editor read-only until that transaction has settled.
+  const editingDisabled = $derived(session.editor.saving || quickSavePending);
   const speechWorkBusy = $derived(
     ![State.Idle, State.Failed].includes(session.dictation.status.state) ||
       session.files.starting ||
@@ -112,10 +176,15 @@
     },
   });
 
-  async function revealValidationIssue() {
+  export async function revealValidationIssue() {
     const issue = session.editor.validationIssue;
-    if (!issue || !visible || session.editor.connectionDraft) return;
+    if (!issue || session.editor.connectionDraft) return;
     pendingConnectionAction = null;
+    if (!visible || (sections && !sections.includes(issue.section))) {
+      onRevealSection?.(issue.section);
+      await tick();
+      if (!visible || session.editor.connectionDraft) return;
+    }
     active = issue.section;
     await tick();
     // Voice validation currently identifies the workflow, rather than an individual option.
@@ -157,10 +226,32 @@
     if (visible && contentKey)
       contentPane?.scrollTo({ top: 0, left: 0, behavior: "instant" });
   });
+  $effect(() => {
+    if (!inspector || !visible || !navigationRef) return;
+    const navigation = navigationRef;
+    const id = inspectorTabID(active);
+    let cancelled = false;
+    void tick().then(() => {
+      if (cancelled) return;
+      navigation
+        .querySelector<HTMLElement>(`#${CSS.escape(id)}`)
+        ?.scrollIntoView({
+          block: "nearest",
+          inline: "nearest",
+          behavior: "instant",
+        });
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
 
   let pendingConnectionAction = $state<(() => void) | null>(null);
+  export function blocksNavigation(): boolean {
+    return pendingConnectionAction !== null;
+  }
   function withSavedSettings(action: () => void) {
-    if (session.editor.saving) return;
+    if (editingDisabled) return;
     if (session.editor.runtimeDirty) pendingConnectionAction = action;
     else action();
   }
@@ -170,6 +261,7 @@
     });
   }
   async function continueConnection(save: boolean) {
+    if (editingDisabled) return;
     if (save) {
       if (!(await session.editor.save())) {
         await revealValidationIssue();
@@ -196,6 +288,10 @@
     });
   }
   function selectSection(id: SettingsSectionID) {
+    if (sections && !sections.includes(id)) {
+      onNavigate?.(id);
+      return;
+    }
     if (onNavigate) {
       onNavigate(id);
       return;
@@ -207,8 +303,32 @@
     active = id;
     if (id === "audio") void session.editor.refreshDevices();
   }
+  async function moveInspectorSection(event: KeyboardEvent, index: number) {
+    const count = inspectorSections.length;
+    if (
+      !count ||
+      !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
+    )
+      return;
+    event.preventDefault();
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? count - 1
+          : (index + (event.key === "ArrowRight" ? 1 : -1) + count) % count;
+    const target = inspectorSections[next].id;
+    selectSection(target);
+    await tick();
+    navigationRef
+      ?.querySelector<HTMLButtonElement>(
+        `#${CSS.escape(inspectorTabID(target))}`,
+      )
+      ?.focus();
+  }
 
   async function saveSettings() {
+    if (editingDisabled) return;
     if (await session.editor.save()) {
       shortcutCapture.markSaved();
       onSaved();
@@ -251,52 +371,129 @@
 </script>
 
 <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-  <SettingsNav
-    {active}
-    onSelect={selectSection}
-    bind:navigationRef
-    invalidSection={session.editor.validationIssue?.section}
-  />
+  {#if !inspector}<SettingsNav
+      onOpenChain={onClose}
+      counts={{
+        connections:
+          session.editor.draft?.savedConnections.entries?.length ?? 0,
+        vocabulary: vocabularyTermCount,
+      }}
+      {active}
+      {sections}
+      onSelect={selectSection}
+      bind:navigationRef
+      invalidSection={session.editor.validationIssue?.section}
+    />{/if}
 
   <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+    {#if inspector && inspectorSections.length > 1}
+      <nav
+        bind:this={navigationRef}
+        aria-label="Context settings"
+        class="workbench-header min-w-0 gap-1 pl-0 pr-2"
+      >
+        <div
+          role="tablist"
+          aria-label="Context settings"
+          class="flex h-full min-w-0 flex-1 overflow-x-auto"
+        >
+          {#each inspectorSections as item, index (item.id)}
+            <button
+              id={inspectorTabID(item.id)}
+              type="button"
+              role="tab"
+              aria-label={`${sectionLabel(item.id)} settings`}
+              aria-selected={active === item.id}
+              aria-controls={inspectorPanelID}
+              tabindex={active === item.id ||
+              (!inspectorSections.some((entry) => entry.id === active) &&
+                index === 0)
+                ? 0
+                : -1}
+              title={sectionLabel(item.id)}
+              class="workbench-tab shrink-0 px-2"
+              onclick={() => selectSection(item.id)}
+              onkeydown={(event) => void moveInspectorSection(event, index)}
+              >{inspectorLabels[item.id] ?? item.label}</button
+            >
+          {/each}
+        </div>
+        {#if onCloseSidebar}
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            class="shrink-0"
+            aria-label="Close secondary sidebar"
+            title="Close sidebar"
+            disabled={editingDisabled}
+            onclick={onCloseSidebar}
+            ><XIcon class="size-4" aria-hidden="true" /></Button
+          >
+        {/if}
+      </nav>
+    {/if}
     <div
       bind:this={contentPane}
       style:scroll-padding-top={`${headingHeight + 16}px`}
-      class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-6 sm:px-7"
+      class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6 {inspector
+        ? 'px-3'
+        : 'px-5'}"
     >
       <section
+        id={inspector ? inspectorPanelID : undefined}
+        role={inspector && inspectorSections.length > 1
+          ? "tabpanel"
+          : undefined}
         aria-labelledby="settings-section-title"
-        class="@container mx-auto flex w-full max-w-[820px] flex-col gap-4"
+        class="@container flex w-full flex-col gap-3"
       >
-        <div
-          bind:clientHeight={headingHeight}
-          class="sticky top-0 z-10 space-y-1.5 border-b border-hairline bg-background pb-4 pt-5"
+        <PaneHeader
+          title={sectionTitle}
+          icon={section.icon}
+          headingID="settings-page-heading"
+          focusable
+          bind:height={headingHeight}
+          class="sticky top-0 z-10 bg-background {inspector
+            ? '-mx-3 h-[34px]'
+            : '-mx-5'}"
         >
-          <h3
-            id="settings-page-heading"
-            tabindex="-1"
-            class="font-display text-[26px] font-bold tracking-tight"
-          >
-            {section.label}
-          </h3>
-          <p class="max-w-xl text-sm leading-5 text-muted-foreground">
-            {section.blurb}
+          {#snippet actions()}
+            {#if inspector && inspectorSections.length <= 1 && onCloseSidebar}
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                class="shrink-0"
+                aria-label="Close secondary sidebar"
+                title="Close sidebar"
+                disabled={editingDisabled}
+                onclick={onCloseSidebar}
+                ><XIcon class="size-4" aria-hidden="true" /></Button
+              >
+            {/if}
+          {/snippet}
+        </PaneHeader>
+        <p class="content-meta max-w-2xl">
+          {sectionBlurb}
+        </p>
+        {#if sharedNote}
+          <p class="text-xs leading-5 text-muted-foreground">
+            <span class="font-medium">Shared</span> · {sharedNote}
           </p>
-        </div>
+        {/if}
         <h2
           id="settings-section-title"
           class="sr-only"
           aria-live="polite"
           aria-atomic="true"
         >
-          {section.label} settings
+          {sectionTitle} settings
         </h2>
         {#if messages.length && pendingConnectionAction === null && !decisionOpen}<Notifications
             {messages}
           />{/if}
         {#if session.editor.validationIssue}
           <div
-            class="flex flex-wrap items-center gap-2 border-l-2 border-destructive pl-3 text-sm"
+            class="flex flex-wrap items-center gap-2 border-l-2 border-destructive pl-3 text-[13px]"
           >
             <p
               id="settings-validation-message"
@@ -315,276 +512,302 @@
           </div>
         {/if}
 
-        {#if session.editor.draft}
-          {#if active === "voice-transcription" || active === "server" || active === "processing" || active === "speech"}
-            <SavedConnectionPicker
-              catalog={session.editor.draft.savedConnections}
-              purpose={active === "voice-transcription"
-                ? Purpose.Voice
-                : active === "server"
-                  ? Purpose.Transcription
-                  : active === "processing"
-                    ? Purpose.Cleanup
-                    : Purpose.Speech}
-              dirty={session.editor.dirty}
-              busy={session.editor.saving ||
-                session.editor.quickSettingsPending.length > 0}
-              onChange={async (change) => {
-                if (!session.editor.runtimeDirty)
-                  return session.editor.changeConnection(change);
-                withSavedSettings(() => {
-                  void session.editor.changeConnection(change);
-                });
-                return false;
-              }}
-              onAdd={() =>
-                addConnection(
-                  active === "voice-transcription"
-                    ? Purpose.Voice
-                    : active === "server"
-                      ? Purpose.Transcription
-                      : active === "processing"
-                        ? Purpose.Cleanup
-                        : Purpose.Speech,
-                )}
-              onBrowse={browseConnections}
-              onManage={() =>
-                withSavedSettings(() => {
-                  const purpose =
+        <fieldset
+          class="m-0 flex min-w-0 flex-col gap-3 border-0 p-0"
+          aria-label="Settings fields"
+          disabled={editingDisabled}
+          inert={quickSavePending}
+        >
+          {#if session.editor.draft}
+            {#if active === "voice-transcription" || active === "server" || active === "processing" || active === "speech"}
+              <SavedConnectionPicker
+                catalog={session.editor.draft.savedConnections}
+                purpose={active === "voice-transcription"
+                  ? Purpose.Voice
+                  : active === "server"
+                    ? Purpose.Transcription
+                    : active === "processing"
+                      ? Purpose.Cleanup
+                      : Purpose.Speech}
+                dirty={session.editor.dirty}
+                busy={editingDisabled}
+                onChange={async (change) => {
+                  if (!session.editor.runtimeDirty)
+                    return session.editor.changeConnection(change);
+                  withSavedSettings(() => {
+                    void session.editor.changeConnection(change);
+                  });
+                  return false;
+                }}
+                onAdd={() =>
+                  addConnection(
                     active === "voice-transcription"
                       ? Purpose.Voice
                       : active === "server"
                         ? Purpose.Transcription
                         : active === "processing"
                           ? Purpose.Cleanup
-                          : Purpose.Speech;
-                  const c =
-                    session.editor.applied?.savedConnections.entries?.find(
-                      (c) =>
-                        c.id ===
-                        session.editor.applied?.savedConnections.selected?.[
-                          purpose
-                        ],
-                    );
-                  onOpenConnection({
-                    id: c?.id ?? "",
-                    purpose,
-                    create: false,
-                  });
-                })}
-            />
-          {/if}
-          {#if active === "local-runtime"}
-            <LocalRuntimeSection
-              runtime={session.runtime}
-              disabled={session.editor.saving}
-              workBusy={speechWorkBusy}
-              onConnections={browseConnections}
-              onAction={withSavedSettings}
-            />
-          {:else if active === "connections"}
-            <Button onclick={browseConnections}>Open connections</Button>
-          {:else if active === "voice-transcription"}
-            {#if session.editor.draft.savedConnections.selected?.voice}
-              <VoiceTranscriptionSettings
-                runtime={session.runtime}
-                onManageRuntime={() => selectSection("local-runtime")}
-                editor={session.editor}
+                          : Purpose.Speech,
+                  )}
+                onBrowse={browseConnections}
+                onManage={() =>
+                  withSavedSettings(() => {
+                    const purpose =
+                      active === "voice-transcription"
+                        ? Purpose.Voice
+                        : active === "server"
+                          ? Purpose.Transcription
+                          : active === "processing"
+                            ? Purpose.Cleanup
+                            : Purpose.Speech;
+                    const c =
+                      session.editor.applied?.savedConnections.entries?.find(
+                        (c) =>
+                          c.id ===
+                          session.editor.applied?.savedConnections.selected?.[
+                            purpose
+                          ],
+                      );
+                    onOpenConnection({
+                      id: c?.id ?? "",
+                      purpose,
+                      create: false,
+                    });
+                  })}
+              />
+            {/if}
+            {#if active === "local-runtime"}
+              <!-- The runtime inventory has a place of its own on the rail, with
+                 room for the model table and the process output drawer. One
+                 screen, one implementation: this points at it rather than
+                 rendering a second, smaller copy here. -->
+              <div class="border-y border-hairline py-3">
+                <p class="text-[13px] text-secondary-foreground">
+                  Local runtimes have their own place, alongside the workflows
+                  on the rail. Install and remove engines, pick models, and read
+                  process output there.
+                </p>
+                <Button class="mt-3" size="sm" onclick={onOpenRuntimes}
+                  >Open Local runtime</Button
+                >
+              </div>
+            {:else if active === "connections"}
+              <Button onclick={browseConnections}>Open connections</Button>
+            {:else if active === "voice-transcription"}
+              {#if session.editor.draft.savedConnections.selected?.voice}
+                <VoiceTranscriptionSettings
+                  runtime={session.runtime}
+                  onManageRuntime={() => selectSection("local-runtime")}
+                  editor={session.editor}
+                  settings={session.editor.draft}
+                  draft
+                  disabled={editingDisabled}
+                  onAddConnection={addConnection}
+                />
+              {/if}
+            {:else if active === "vocabulary"}
+              <VocabularySection
                 settings={session.editor.draft}
-                draft
-                disabled={session.editor.saving}
-                onAddConnection={addConnection}
+                onChange={(patch) =>
+                  !editingDisabled &&
+                  Object.assign(session.editor.draft!.vocabulary, patch)}
+                disabled={editingDisabled}
               />
-            {/if}
-          {:else if active === "vocabulary"}
-            <VocabularySection
-              settings={session.editor.draft}
-              onChange={(patch) =>
-                Object.assign(session.editor.draft!.vocabulary, patch)}
-              disabled={session.editor.saving}
-            />
-          {:else if active === "general"}
-            <GeneralSection bind:settings={session.editor.draft} />
-          {:else if active === "shortcuts"}
-            <ShortcutsSection
-              bind:settings={session.editor.draft}
-              status={session.dictation.status}
-              busy={session.busy}
-              capture={shortcutCapture}
-            />
-          {:else if active === "audio"}
-            <AudioSection
-              bind:settings={session.editor.draft}
-              devices={session.editor.devices}
-              microphoneChoice={session.editor.microphoneChoice}
-              busy={session.editor.devicesBusy}
-              onChooseMicrophone={(choice) =>
-                session.editor.chooseMicrophone(choice)}
-              onRefreshDevices={() => session.editor.refreshDevices()}
-            />
-          {:else if active === "overlay"}
-            <OverlaySection
-              bind:settings={session.editor.draft}
-              previewing={overlayPreviewing}
-              canPreview={session.dictation.status.state === State.Idle ||
-                session.dictation.status.state === State.Failed}
-              onStartPreview={onStartOverlayPreview}
-              onStopPreview={onStopOverlayPreview}
-            />
-          {:else if active === "server"}
-            {#if session.editor.draft.savedConnections.selected?.stt}
-              <ServerSection
-                runtime={session.runtime}
-                onManageRuntime={() => selectSection("local-runtime")}
-                onEnter={() =>
-                  void session.editor.ensureConnectionMetadata(
+            {:else if active === "general"}
+              <GeneralSection
+                bind:settings={session.editor.draft}
+                deliveryOnly={inspector}
+              />
+            {:else if active === "shortcuts"}
+              <ShortcutsSection
+                bind:settings={session.editor.draft}
+                status={session.dictation.status}
+                busy={session.busy}
+                capture={shortcutCapture}
+              />
+            {:else if active === "audio"}
+              <AudioSection
+                bind:settings={session.editor.draft}
+                devices={session.editor.devices}
+                microphoneChoice={session.editor.microphoneChoice}
+                busy={session.editor.devicesBusy}
+                onChooseMicrophone={(choice) =>
+                  session.editor.chooseMicrophone(choice)}
+                onRefreshDevices={() => session.editor.refreshDevices()}
+              />
+            {:else if active === "overlay"}
+              <OverlaySection
+                bind:settings={session.editor.draft}
+                previewing={overlayPreviewing}
+                canPreview={session.dictation.status.state === State.Idle ||
+                  session.dictation.status.state === State.Failed}
+                onStartPreview={onStartOverlayPreview}
+                onStopPreview={onStopOverlayPreview}
+              />
+            {:else if active === "server"}
+              {#if session.editor.draft.savedConnections.selected?.stt}
+                <ServerSection
+                  runtime={session.runtime}
+                  onManageRuntime={() => selectSection("local-runtime")}
+                  onEnter={() =>
+                    void session.editor.ensureConnectionMetadata(
+                      Purpose.Transcription,
+                      true,
+                    )}
+                  metadataStatus={session.editor.connectionMetadataStatus(
                     Purpose.Transcription,
-                    true,
                   )}
-                metadataStatus={session.editor.connectionMetadataStatus(
-                  Purpose.Transcription,
-                )}
-                connectionStale={session.editor.connectionResultStale(
-                  Purpose.Transcription,
-                )}
-                draftModels={session.editor.modelDraftIDs(
-                  Purpose.Transcription,
-                )}
-                onChooseModel={(model) =>
-                  session.editor.chooseModel(Purpose.Transcription, model)}
-                onForgetModel={() =>
-                  session.editor.forgetModel(Purpose.Transcription)}
-                bind:settings={session.editor.draft}
-                connection={session.editor.connection}
-                busy={session.editor.sttConnectionTesting}
-                onTestConnection={() => session.editor.testConnection()}
-              />
-            {/if}
-          {:else if active === "processing"}
-            {#if session.editor.draft.savedConnections.selected?.cleanup}
-              <ProcessingSection
-                runtime={session.runtime}
-                onManageRuntime={() => selectSection("local-runtime")}
-                onEnter={() =>
-                  void session.editor.ensureConnectionMetadata(
+                  connectionStale={session.editor.connectionResultStale(
+                    Purpose.Transcription,
+                  )}
+                  draftModels={session.editor.modelDraftIDs(
+                    Purpose.Transcription,
+                  )}
+                  onChooseModel={(model) =>
+                    session.editor.chooseModel(Purpose.Transcription, model)}
+                  onForgetModel={() =>
+                    session.editor.forgetModel(Purpose.Transcription)}
+                  bind:settings={session.editor.draft}
+                  connection={session.editor.connection}
+                  busy={session.editor.sttConnectionTesting}
+                  onTestConnection={() => session.editor.testConnection()}
+                />
+              {/if}
+            {:else if active === "processing"}
+              {#if session.editor.draft.savedConnections.selected?.cleanup}
+                <ProcessingSection
+                  runtime={session.runtime}
+                  onManageRuntime={() => selectSection("local-runtime")}
+                  onEnter={() =>
+                    void session.editor.ensureConnectionMetadata(
+                      Purpose.Cleanup,
+                      true,
+                    )}
+                  metadataStatus={session.editor.connectionMetadataStatus(
                     Purpose.Cleanup,
-                    true,
                   )}
-                metadataStatus={session.editor.connectionMetadataStatus(
-                  Purpose.Cleanup,
-                )}
-                connectionStale={session.editor.connectionResultStale(
-                  Purpose.Cleanup,
-                )}
-                draftModels={session.editor.modelDraftIDs(Purpose.Cleanup)}
-                onChooseModel={(model) =>
-                  session.editor.chooseModel(Purpose.Cleanup, model)}
-                onForgetModel={() =>
-                  session.editor.forgetModel(Purpose.Cleanup)}
-                bind:settings={session.editor.draft}
-                profiles={session.editor.processingProfiles}
-                connection={session.editor.processingConnection}
-                busy={session.editor.processingConnectionTesting}
-                onTestConnection={() =>
-                  session.editor.testPostProcessingConnection()}
-              />
-            {/if}
-          {:else if active === "speech"}
-            {#if session.editor.draft.savedConnections.selected?.speech}
-              <SpeechSection
-                runtime={session.runtime}
-                onManageRuntime={() => selectSection("local-runtime")}
-                onEnter={() =>
-                  void session.editor.ensureConnectionMetadata(
+                  connectionStale={session.editor.connectionResultStale(
+                    Purpose.Cleanup,
+                  )}
+                  draftModels={session.editor.modelDraftIDs(Purpose.Cleanup)}
+                  onChooseModel={(model) =>
+                    session.editor.chooseModel(Purpose.Cleanup, model)}
+                  onForgetModel={() =>
+                    session.editor.forgetModel(Purpose.Cleanup)}
+                  bind:settings={session.editor.draft}
+                  profiles={session.editor.processingProfiles}
+                  connection={session.editor.processingConnection}
+                  busy={session.editor.processingConnectionTesting}
+                  onTestConnection={() =>
+                    session.editor.testPostProcessingConnection()}
+                />
+              {/if}
+            {:else if active === "speech"}
+              {#if session.editor.draft.savedConnections.selected?.speech}
+                <SpeechSection
+                  runtime={session.runtime}
+                  onManageRuntime={() => selectSection("local-runtime")}
+                  onEnter={() =>
+                    void session.editor.ensureConnectionMetadata(
+                      Purpose.Speech,
+                      true,
+                    )}
+                  metadataStatus={session.editor.connectionMetadataStatus(
                     Purpose.Speech,
-                    true,
                   )}
-                metadataStatus={session.editor.connectionMetadataStatus(
-                  Purpose.Speech,
-                )}
-                voices={session.editor.voices}
-                voicesBusy={session.editor.voicesBusy}
-                onDiscoverVoices={() => session.editor.discoverVoices()}
-                connectionStale={session.editor.connectionResultStale(
-                  Purpose.Speech,
-                )}
-                draftModels={session.editor.modelDraftIDs(Purpose.Speech)}
-                onChooseModel={(model) =>
-                  session.editor.chooseModel(Purpose.Speech, model)}
-                onForgetModel={() => session.editor.forgetModel(Purpose.Speech)}
+                  voices={session.editor.voices}
+                  voicesBusy={session.editor.voicesBusy}
+                  onDiscoverVoices={() => session.editor.discoverVoices()}
+                  connectionStale={session.editor.connectionResultStale(
+                    Purpose.Speech,
+                  )}
+                  draftModels={session.editor.modelDraftIDs(Purpose.Speech)}
+                  onChooseModel={(model) =>
+                    session.editor.chooseModel(Purpose.Speech, model)}
+                  onForgetModel={() =>
+                    session.editor.forgetModel(Purpose.Speech)}
+                  bind:settings={session.editor.draft}
+                  status={session.speech.status}
+                  busy={session.speech.previewing}
+                  connection={session.editor.ttsConnection}
+                  connectionBusy={session.editor.ttsConnectionTesting}
+                  canPreview={session.dictation.status.state === State.Idle &&
+                    !session.files.status.canCancel}
+                  onPreview={() => {
+                    if (session.editor.draft)
+                      void session.speech.previewVoice(session.editor.draft);
+                  }}
+                  onStop={() => session.speech.stopTTS()}
+                  onSave={() => session.speech.saveTTSAudio()}
+                  onClear={() => session.speech.clearTTSAudio()}
+                  onTestConnection={() =>
+                    session.editor.testTextToSpeechConnection()}
+                />
+              {/if}
+            {:else if active === "history"}
+              <HistorySection
                 bind:settings={session.editor.draft}
-                status={session.speech.status}
-                busy={session.speech.previewing}
-                connection={session.editor.ttsConnection}
-                connectionBusy={session.editor.ttsConnectionTesting}
-                canPreview={session.dictation.status.state === State.Idle &&
-                  !session.files.status.canCancel}
-                onPreview={() => {
-                  if (session.editor.draft)
-                    void session.speech.previewVoice(session.editor.draft);
-                }}
-                onStop={() => session.speech.stopTTS()}
-                onSave={() => session.speech.saveTTSAudio()}
-                onClear={() => session.speech.clearTTSAudio()}
-                onTestConnection={() =>
-                  session.editor.testTextToSpeechConnection()}
+                enabled={session.editor.applied?.historyEnabled ?? false}
+                entries={session.history.entries}
+                onCopy={(id) => session.history.copyHistoryEntry(id)}
+                onCopyVersion={(id, version) =>
+                  session.history.copyHistoryEntryVersion(id, version)}
+                onDelete={(id) => session.history.deleteHistoryEntry(id)}
+                onClear={() => session.history.clearHistory()}
               />
             {/if}
-          {:else if active === "history"}
-            <HistorySection
-              bind:settings={session.editor.draft}
-              enabled={session.editor.applied?.historyEnabled ?? false}
-              entries={session.history.entries}
-              onCopy={(id) => session.history.copyHistoryEntry(id)}
-              onCopyVersion={(id, version) =>
-                session.history.copyHistoryEntryVersion(id, version)}
-              onDelete={(id) => session.history.deleteHistoryEntry(id)}
-              onClear={() => session.history.clearHistory()}
-            />
+          {:else}
+            <Skeleton class="h-9 w-full" />
+            <Skeleton class="h-9 w-full" />
+            <Skeleton class="h-24 w-full" />
           {/if}
-        {:else}
-          <Skeleton class="h-9 w-full" />
-          <Skeleton class="h-9 w-full" />
-          <Skeleton class="h-24 w-full" />
-        {/if}
+        </fieldset>
       </section>
     </div>
 
     <div
-      class="flex min-h-14 shrink-0 flex-wrap items-center justify-end gap-2.5 border-t border-border bg-card px-6 py-3"
+      class="flex min-h-11 shrink-0 flex-wrap items-center justify-end gap-2 border-t border-hairline py-2 {inspector
+        ? 'px-3'
+        : 'px-5'}"
     >
       {#if session.editor.draft}
         <span
-          class="figure mr-auto flex items-center gap-2 text-xs font-medium text-muted-foreground"
+          class="figure mr-auto flex items-center gap-2 text-xs font-medium text-muted-foreground {inspector
+            ? 'w-full'
+            : ''}"
           aria-live="polite"
           aria-atomic="true"
         >
           <StatusBadge
-            tone={dirty || session.editor.saving ? "accent" : "success"}
+            tone={dirty || editingDisabled ? "accent" : "success"}
             dot
           >
-            {session.editor.saving
-              ? "Saving changes…"
-              : dirty
-                ? "Unsaved changes"
-                : "All changes saved"}
+            {quickSavePending
+              ? "Applying quick settings…"
+              : session.editor.saving
+                ? "Saving changes…"
+                : dirty
+                  ? "Unsaved changes"
+                  : "All changes saved"}
           </StatusBadge>
         </span>
         {#if session.editor.runtimeDirty && active !== "connections"}
           <Button
             variant="ghost"
-            disabled={session.editor.saving}
-            onclick={() => session.editor.discardSettingsDraft()}
-            >Discard changes</Button
+            disabled={editingDisabled}
+            onclick={() => {
+              if (!editingDisabled) session.editor.discardSettingsDraft();
+            }}>Discard changes</Button
           >
         {/if}
-        <Button
-          variant="outline"
-          disabled={session.editor.saving}
-          onclick={onClose}>Done</Button
+        <Button variant="outline" disabled={editingDisabled} onclick={onClose}
+          >Done</Button
         >
         {#if active !== "connections"}<Button
-            disabled={session.busy || shortcutCapture.capturing || !dirty}
+            disabled={editingDisabled ||
+              session.busy ||
+              shortcutCapture.capturing ||
+              !dirty}
             onclick={saveSettings}
           >
             {#if session.editor.saving}
@@ -592,15 +815,13 @@
             {/if}
             {session.editor.saving
               ? "Saving…"
-              : saveReturnsToTask
+              : saveReturnsToTask && !inspector
                 ? "Save and return"
                 : "Save"}
           </Button>{/if}
       {:else}
-        <Button
-          variant="outline"
-          disabled={session.editor.saving}
-          onclick={onClose}>Done</Button
+        <Button variant="outline" disabled={editingDisabled} onclick={onClose}
+          >Done</Button
         >
       {/if}
     </div>
@@ -609,7 +830,7 @@
 
 <PendingChangesDialog
   open={pendingConnectionAction !== null}
-  busy={session.editor.saving}
+  busy={editingDisabled}
   title="Save settings before continuing?"
   description="Your model and task edits have not been applied. Save them for the current connection, or discard them before continuing."
   error={session.messages.error}

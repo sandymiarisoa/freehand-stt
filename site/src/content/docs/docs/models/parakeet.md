@@ -24,7 +24,8 @@ to load it and expose the HTTP API.
 Connect that manual service in Freehand:
 
 1. Add a **NeMo-Speech.cpp** [connection](../../backends/nemo-speech/).
-2. Select that connection in **Voice transcription**, **Audio-file transcription**, or both.
+2. Open the **Settings** cog in Voice transcription or Audio file and select that connection
+   in **Transcription** options. Configure each workflow independently if you use both.
 3. Refresh models and select the loaded Parakeet model.
 4. Choose **Parakeet TDT v3** as the model profile, then save.
 
@@ -34,7 +35,13 @@ Microphone transcription completes when you stop recording or at a pause-aware
 checkpoint. You can use cleanup and focus-safe insertion as usual. Select the
 model separately for audio-file transcription, then copy the result when ready.
 
-The profile uses automatic language detection. It does not offer language hints,
+**Spoken language** shows **Automatic detection** with an explanation instead of
+a language dropdown. Parakeet recognizes its 25 supported languages automatically;
+it cannot be forced to use a particular language like Nemotron. See
+[NVIDIA's model card](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3)
+for the supported languages.
+
+The profile does not offer language hints,
 context, vocabulary boosting, temperature overrides, or realtime microphone
 streaming with NeMo-Speech.cpp.
 Shared vocabulary remains saved for other compatible selections.

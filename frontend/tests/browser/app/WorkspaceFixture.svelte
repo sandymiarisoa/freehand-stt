@@ -1,11 +1,20 @@
 <script lang="ts">
-  import StatusStrip from "$lib/components/shell/StatusStrip.svelte";
+  import StatusBar from "$lib/components/shell/StatusBar.svelte";
+  import WorkbenchFrame from "$lib/components/shell/WorkbenchFrame.svelte";
+  import WorkbenchPanel from "$lib/components/shell/WorkbenchPanel.svelte";
+  import PlaybackBar from "$lib/components/home/PlaybackBar.svelte";
+  import Notifications from "$lib/components/shell/Notifications.svelte";
+  import type { Message } from "$lib/utils/messages";
+  import {
+    WorkbenchLayout,
+    provideWorkbenchLayout,
+  } from "$lib/workbench-layout.svelte";
   import {
     taskConnectionDetails,
     taskConnectionStatus,
   } from "$lib/utils/connection";
   import { configurePickerFixture } from "./picker-data";
-  import { onDestroy } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { CancellablePromise } from "@wailsio/runtime";
   import { ID as ModelProfileID } from "$bindings/modelprofile";
   import { modelOptions } from "$lib/utils/modelSettings";
@@ -28,8 +37,22 @@
     serviceWithStatus,
   } from "$lib/stores/session-fixtures-data";
   import HomeScreen from "$lib/components/home/HomeScreen.svelte";
-  import AppHeader from "$lib/components/shell/AppHeader.svelte";
+  import HistoryPane from "$lib/components/history/HistoryPane.svelte";
+  import TitleBar from "$lib/components/shell/TitleBar.svelte";
+  import ActivityRail from "$lib/components/shell/ActivityRail.svelte";
+  import { type PaneID } from "$lib/panes";
   import { controlledSaves } from "./save-control";
+
+  const layout = new WorkbenchLayout();
+  provideWorkbenchLayout(layout);
+  let layoutRestored = $state(false);
+  onMount(() => {
+    layout.restore();
+    layoutRestored = true;
+  });
+  $effect(() => {
+    if (layoutRestored) layout.save();
+  });
 
   const listenScenario = new URLSearchParams(location.search).has(
     "listen-pending",
@@ -38,8 +61,7 @@
   let finishListen: ((success: boolean) => void) | undefined;
   const saveScenario = new URLSearchParams(location.search).has("save-pending");
   let finishAudioSave:
-    | ((outcome: "saved" | "cancelled" | "failed") => void)
-    | undefined;
+    ((outcome: "saved" | "cancelled" | "failed") => void) | undefined;
   const playbackScenario = new URLSearchParams(location.search).has("playback");
   const fileStreamingScenario = new URLSearchParams(location.search).has(
     "file-streaming",
@@ -211,6 +233,33 @@
   });
   const session: Session = new Session(
     serviceWithStatus(() => CancellablePromise.resolve(idle), {
+      dictation: {
+        StartRecording: (mode) => {
+          session.dictation.applyStatus({
+            ...idle,
+            generation: session.dictation.status.generation + 1,
+            state: State.Recording,
+            recordingMode: mode,
+            startedAt: new Date().toISOString(),
+            canCancel: true,
+          });
+          return CancellablePromise.resolve();
+        },
+        StopRecording: () => {
+          session.dictation.applyStatus({
+            ...session.dictation.status,
+            state: State.Transcribing,
+          });
+          return CancellablePromise.resolve();
+        },
+        Cancel: () => {
+          session.dictation.applyStatus({
+            ...idle,
+            generation: session.dictation.status.generation,
+          });
+          return CancellablePromise.resolve();
+        },
+      },
       connection: {
         TestSavedConnection: () => {
           connectionChecks++;
@@ -515,6 +564,10 @@
     if (setupScenario === "loading") session.editor.devicesBusy = true;
     if (setupScenario === "connection")
       void session.editor.testVoiceConnection();
+  } else if (!diagnosticsScenario && current.savedConnections.selected.voice) {
+    // This standalone fixture replaces App, which owns the initial Voice probe.
+    // Setup and diagnostics scenarios control when their first fake check runs.
+    void session.editor.testVoiceConnection();
   }
   if (new URLSearchParams(location.search).get("feedback") === "voice") {
     session.dictation.status = {
@@ -607,6 +660,40 @@
   window.testSaves = saves.control;
   onDestroy(() => session.dispose());
   let inputMode = $state("voice");
+  let activePane = $state<PaneID>("voice");
+  const messages = $derived.by(() => {
+    const items: Message[] = [];
+    if (session.messages.info)
+      items.push({
+        id: "info",
+        tone: "info",
+        source: "system",
+        text: session.messages.info,
+        onDismiss: () => session.messages.dismissInfo(),
+      });
+    const speechFailureVisible =
+      session.speech.status.phase === TTSPhase.Failed &&
+      (session.speech.status.source !== TTSSource.SourceCompose ||
+        (activePane !== "history" && inputMode === "tts")) &&
+      session.messages.isSpeechFailure(session.speech.status.generation);
+    if (session.messages.error && !speechFailureVisible)
+      items.push({
+        id: "error",
+        tone: "error",
+        source: "action",
+        text: session.messages.error,
+        onDismiss: () => session.messages.dismissError(),
+      });
+    if (session.messages.notice)
+      items.push({
+        id: "notice",
+        tone: "success",
+        source: "action",
+        text: session.messages.notice,
+        onDismiss: () => session.messages.dismissNotice(),
+      });
+    return items;
+  });
   const noop = () => {};
   const footerStatus = $derived(
     taskConnectionStatus(inputMode, session.editor, Date.now()),
@@ -614,44 +701,113 @@
   const footerConnection = $derived(
     taskConnectionDetails(inputMode, session.editor),
   );
+  let now = $state(Date.now());
+  $effect(() => {
+    const timer = setInterval(() => (now = Date.now()), 1_000);
+    return () => clearInterval(timer);
+  });
 </script>
 
 <div
   class="flex h-screen flex-col overflow-hidden bg-background text-foreground"
 >
-  <AppHeader
-    bind:inputMode
-    settings={session.editor.applied}
-    onSettings={noop}
+  <TitleBar
+    onOpenCommands={noop}
+    primaryVisible={layout.primaryVisible}
+    bottomVisible={layout.bottomVisible}
+    secondaryVisible={activePane === "history" && layout.secondaryVisible}
+    secondaryAvailable={activePane === "history"}
+    bottomAvailable={layout.bottomAvailable.current}
+    onTogglePrimary={() => layout.togglePrimary()}
+    onToggleBottom={() => layout.toggleBottom()}
+    onToggleSecondary={() => layout.toggleSecondary()}
   />
-  <HomeScreen
-    {session}
-    bind:inputMode
-    onOpenHistorySettings={noop}
-    onOpenServerSettings={() =>
-      (openedSettings = "File transcription settings")}
-    onOpenProcessingSettings={noop}
-    onOpenAudioSettings={() => (openedSettings = "Audio settings")}
-    onOpenShortcutSettings={() => (openedSettings = "Shortcut settings")}
-    onOpenSpeechSettings={() => (openedSettings = "Speech settings")}
-    onOpenGeneralSettings={noop}
-  />
-  {#if diagnosticsScenario}
-    <StatusStrip
-      connectionState={footerStatus}
-      connectionDetails={footerConnection}
-      onCheck={() =>
-        session.editor.testAppliedConnection(footerConnection.purpose)}
-      onEdit={() =>
-        (openedSettings = `Edit ${footerConnection.selected?.id || "connections"} for ${footerConnection.purpose}`)}
-      onSettings={() => (openedSettings = "Speech settings")}
-      onAbout={noop}
-      version="Review"
+  {#if messages.length}<Notifications shell {messages} />{/if}
+  <div class="flex min-h-0 flex-1">
+    <ActivityRail
+      pane={activePane}
+      voiceActive={session.dictation.status.state !== State.Idle &&
+        session.dictation.status.state !== State.Failed}
+      fileWorking={session.files.starting || session.files.status.canCancel}
+      onSelect={(id) => {
+        if (id === "history") activePane = id;
+        else if (id === "voice" || id === "file" || id === "tts") {
+          activePane = id;
+          inputMode = id;
+        }
+      }}
     />
-    {#if openedSettings}<p class="sr-only" role="status">
-        {openedSettings}
-      </p>{/if}
-  {:else}
+    <WorkbenchFrame
+      {layout}
+      area={activePane === "history" ? "history" : "workflow"}
+    >
+      {#snippet panel()}
+        <WorkbenchPanel
+          {session}
+          {inputMode}
+          settingsOpen={false}
+          onOpenHistorySettings={() => (openedSettings = "History settings")}
+        />
+      {/snippet}
+      {#if activePane === "history"}
+        <HistoryPane
+          {session}
+          onOpenHistorySettings={() => (openedSettings = "History settings")}
+        />
+      {:else}
+        <HomeScreen
+          {session}
+          {now}
+          bind:inputMode
+          onOpenHistorySettings={noop}
+          onOpenServerSettings={() =>
+            (openedSettings = "File transcription settings")}
+          onOpenProcessingSettings={noop}
+          onOpenAudioSettings={() => (openedSettings = "Audio settings")}
+          onOpenShortcutSettings={() => (openedSettings = "Shortcut settings")}
+          onOpenSpeechSettings={() => (openedSettings = "Speech settings")}
+          onOpenGeneralSettings={noop}
+          onOpenSettingsSection={(section) =>
+            (openedSettings = `${section} settings`)}
+          onOpenConnection={(request) =>
+            (openedSettings = `Edit ${request.id || "connections"} for ${request.purpose}`)}
+        />
+      {/if}
+      {#if (session.speech.status.source !== TTSSource.SourceCompose || activePane === "history" || inputMode !== "tts") && session.speech.status.phase !== TTSPhase.Idle && session.speech.status.phase !== TTSPhase.Cancelled}
+        <PlaybackBar
+          status={session.speech.status}
+          onPause={() => session.speech.pauseTTS()}
+          onResume={() => session.speech.resumeTTS()}
+          onRestart={() => session.speech.restartTTS()}
+          onSeek={(request) => session.speech.seekTTS(request)}
+          seeking={session.speech.seeking}
+          saving={session.speech.saving}
+          onStop={() => session.speech.stopTTS()}
+          onSave={() => session.speech.saveTTSAudio()}
+          onClear={() => session.speech.clearTTSAudio()}
+          onOpenSettings={() => (openedSettings = "Speech settings")}
+        />
+      {/if}
+    </WorkbenchFrame>
+  </div>
+  <StatusBar
+    dictation={session.dictation.status}
+    {now}
+    connectionState={footerStatus}
+    connectionDetails={footerConnection}
+    onCheck={() =>
+      session.editor.testAppliedConnection(footerConnection.purpose)}
+    onEdit={() =>
+      (openedSettings = `Edit ${footerConnection.selected?.id || "connections"} for ${footerConnection.purpose}`)}
+    onSettings={() => (openedSettings = "Speech settings")}
+    onAbout={noop}
+    version="Review"
+    toggleShortcut={session.editor.applied?.toggleShortcut ?? ""}
+  />
+  {#if openedSettings}<p class="sr-only" role="status">
+      {openedSettings}
+    </p>{/if}
+  {#if !diagnosticsScenario}
     <footer
       class="flex h-9 shrink-0 items-center border-t border-hairline bg-layer-fill px-4 text-xs text-muted-foreground"
     >

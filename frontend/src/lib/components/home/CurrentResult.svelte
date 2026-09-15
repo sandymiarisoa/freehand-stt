@@ -1,10 +1,12 @@
 <script lang="ts">
   import TranscriptText from "$lib/components/common/TranscriptText.svelte";
   import { followTranscript } from "$lib/utils/transcriptScroll";
-  import { onDestroy, type Snippet } from "svelte";
+  import { onDestroy } from "svelte";
   import { CopyFeedback } from "$lib/utils/copyFeedback.svelte";
   import { Button } from "$lib/components/ui/button";
   import LoaderCircleIcon from "@lucide/svelte/icons/loader-circle";
+  import AudioLinesIcon from "@lucide/svelte/icons/audio-lines";
+  import FileAudioIcon from "@lucide/svelte/icons/file-audio";
   let {
     live = false,
     liveFinal = "",
@@ -22,12 +24,10 @@
     onListen,
     listenBusy = false,
     listenDisabled = false,
-    quickSettings,
   }: {
     live?: boolean;
     liveFinal?: string;
     livePartial?: string;
-    quickSettings?: Snippet;
     resultKey: string;
     mode: "voice" | "file";
     text: string;
@@ -53,68 +53,68 @@
 </script>
 
 <section
-  class="@container flex min-h-40 flex-1 flex-col overflow-hidden bg-card"
+  class="@container flex min-h-40 flex-1 flex-col overflow-hidden"
   aria-label="Current result"
 >
-  <div
-    class="flex h-14 shrink-0 items-center gap-2 border-b border-hairline bg-secondary/50 px-3"
-  >
-    <h2 class={quickSettings ? "sr-only" : "text-sm font-medium"}>
-      Current result
-    </h2>
+  <div class="workbench-toolbar flex-wrap gap-y-1 py-1">
+    <h2 class="content-title">Transcript</h2>
     <span
-      class={quickSettings
-        ? "sr-only"
-        : "mr-auto text-xs text-muted-foreground"}
-      >{working
-        ? "In progress"
+      class="mr-auto inline-flex min-h-5 min-w-0 items-center rounded-sm border px-1.5 text-[11px] {live ||
+      working
+        ? 'border-accent-edge bg-accent-wash text-accent-text'
         : recovery
-          ? "Ready to copy"
+          ? 'border-warning/30 text-warning'
           : failed
-            ? "Needs attention"
-            : text
-              ? "Ready"
-              : mode === "file"
-                ? "No transcript yet"
-                : "Nothing recorded yet"}</span
+            ? 'border-destructive/30 text-destructive'
+            : 'border-border text-muted-foreground'}"
+      role="status"
+      >{live
+        ? "Live"
+        : working
+          ? "In progress"
+          : recovery
+            ? "Ready to copy"
+            : failed
+              ? "Needs attention"
+              : text
+                ? "Ready"
+                : mode === "file"
+                  ? "No transcript yet"
+                  : "Nothing recorded yet"}</span
     >
-    {#if quickSettings}
-      <div class="min-w-0 flex-1">{@render quickSettings()}</div>
-    {/if}
     {#if text}
-      {#if quickSettings}<span
-          class="mx-1 h-4 w-px shrink-0 bg-hairline"
-          aria-hidden="true"
-        ></span>{/if}
-      {#if onListen}<Button
-          variant="outline"
-          size="sm"
+      <div class="ml-auto flex shrink-0 items-center gap-1">
+        {#if onListen}<Button
+            variant="outline"
+            size="xs"
+            class="min-w-14"
+            disabled={working || !canCopy || listenDisabled}
+            aria-label={listenBusy
+              ? "Preparing speech for this transcript"
+              : "Listen"}
+            aria-busy={listenBusy}
+            title={listenBusy
+              ? "Preparing speech for this transcript"
+              : listenDisabled
+                ? "Wait for speech generation to finish"
+                : "Listen to transcript"}
+            onclick={onListen}
+            >{#if listenBusy}<LoaderCircleIcon
+                class="animate-spin motion-reduce:animate-none"
+              />{:else}Listen{/if}</Button
+          >{/if}
+        <Button variant="ghost" size="xs" disabled={working} onclick={onClear}
+          >Clear</Button
+        >
+        <Button
+          variant="soft"
+          size="xs"
           class="min-w-16"
-          disabled={working || !canCopy || listenDisabled}
-          aria-label={listenBusy
-            ? "Preparing speech for this transcript"
-            : "Listen"}
-          aria-busy={listenBusy}
-          title={listenBusy
-            ? "Preparing speech for this transcript"
-            : listenDisabled
-              ? "Wait for speech generation to finish"
-              : "Listen to transcript"}
-          onclick={onListen}
-          >{#if listenBusy}<LoaderCircleIcon
-              class="animate-spin motion-reduce:animate-none"
-            />{:else}Listen{/if}</Button
-        >{/if}
-      <Button variant="ghost" size="sm" disabled={working} onclick={onClear}
-        >Clear</Button
-      >
-      <Button
-        variant="soft"
-        size="sm"
-        class="min-w-18"
-        disabled={working || !canCopy}
-        onclick={copy}>{feedback.key === resultKey ? "Copied" : "Copy"}</Button
-      >
+          disabled={working || !canCopy}
+          onclick={copy}
+          >{feedback.key === resultKey ? "Copied" : "Copy"}</Button
+        >
+      </div>
     {/if}
   </div>
   <div class="flex min-h-0 flex-1 flex-col">
@@ -131,7 +131,7 @@
       <div class="flex min-h-full flex-col">
         {#if message || recovery}
           <p
-            class="mx-4 mt-3 rounded-lg border border-hairline bg-secondary px-3 py-2 text-sm leading-relaxed"
+            class="border-b border-hairline bg-layer-fill px-3 py-2 text-xs leading-relaxed"
             class:text-warning={recovery}
             class:text-destructive={failed && !recovery}
             role="status"
@@ -141,9 +141,9 @@
           </p>
         {/if}
         {#if live || text}
-          <div class="mx-auto w-full max-w-[76ch] px-5 py-6 @min-[600px]:px-8">
+          <div class="w-full max-w-[760px] px-3 py-3.5">
             {#if live}
-              <p class="mb-3 text-xs text-muted-foreground" role="status">
+              <p class="content-meta mb-3" role="status">
                 Live preview · text may change
               </p>
             {/if}
@@ -156,28 +156,24 @@
                   : undefined,
               }}
               label={live ? "Live transcript" : "Current transcript"}
-              class="whitespace-pre-wrap break-words text-[15px] leading-8"
+              class="whitespace-pre-wrap break-words text-[15px] leading-[26px] text-foreground"
             />
           </div>
         {:else if !message}
           <div
-            class="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-4 text-center"
+            class="flex flex-1 flex-col items-center justify-center gap-2 px-5 py-4 text-center"
           >
             <span
-              class="mb-3 grid size-12 place-items-center rounded-2xl bg-accent-wash text-accent-text"
+              class="mb-1 grid size-6 place-items-center text-muted-foreground"
               aria-hidden="true"
             >
-              <svg
-                viewBox="0 0 24 24"
-                class="size-6"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                ><path d="M5 10v4M9 6v12M13 3v18M17 7v10M21 10v4" /></svg
-              >
+              {#if working}<LoaderCircleIcon
+                  class="size-6 animate-spin motion-reduce:animate-none"
+                />
+              {:else if mode === "file"}<FileAudioIcon class="size-6" />
+              {:else}<AudioLinesIcon class="size-6" />{/if}
             </span>
-            <p class="font-display text-xl font-medium tracking-tight">
+            <p class="content-title">
               {failed
                 ? "No transcript to show"
                 : working
@@ -186,9 +182,7 @@
                     ? "Turn an audio file into text"
                     : "Speak into the application you’re using"}
             </p>
-            <p
-              class="max-w-lg text-[13px] leading-relaxed text-muted-foreground"
-            >
+            <p class="content-meta max-w-lg">
               {failed
                 ? mode === "file"
                   ? "Use Retry above, or choose another file."
@@ -205,7 +199,7 @@
     </div>
     {#if !following && (text || liveFinal || livePartial)}
       <div
-        class="flex h-11 shrink-0 items-center justify-center border-t border-hairline px-3"
+        class="flex min-h-8 shrink-0 items-center justify-center border-t border-hairline px-3"
       >
         <Button variant="ghost" size="sm" onclick={() => jump++}
           >Jump to latest</Button

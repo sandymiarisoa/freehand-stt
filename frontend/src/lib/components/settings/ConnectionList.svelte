@@ -2,24 +2,27 @@
   import type { InstanceStatus } from "$bindings/managedruntime";
   import { type Catalog, type Connection } from "$bindings/savedconnection";
   import ProviderIcon from "$lib/components/ProviderIcon.svelte";
+  import SidebarHeader from "$lib/components/shell/SidebarHeader.svelte";
   import { Button } from "$lib/components/ui/button";
+  import { Input } from "$lib/components/ui/input";
   import {
     connectionTargetLabel,
     connectionProvider,
     connectionMatches,
     connectionWorkflows,
   } from "$lib/utils/connectionChoices";
+  import { endpointHost } from "$lib/utils/endpoint";
   import StatusBadge from "$lib/components/common/StatusBadge.svelte";
   import { runtimePresentation } from "$lib/utils/managedRuntime";
   import SearchIcon from "@lucide/svelte/icons/search";
   import PlusIcon from "@lucide/svelte/icons/plus";
-  import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
   let {
     catalog,
     instances = [],
     selected = "",
     creating = false,
     busy = false,
+    sidebar = false,
     onSelect,
     onAdd,
   }: {
@@ -28,6 +31,7 @@
     selected?: string;
     creating?: boolean;
     busy?: boolean;
+    sidebar?: boolean;
     onSelect: (connection: Connection) => void;
     onAdd: () => void;
   } = $props();
@@ -39,34 +43,81 @@
   );
 </script>
 
-<div class="flex h-full min-h-0 flex-col">
+<div
+  class="@container/connections flex h-full min-h-0 min-w-0 flex-col {sidebar
+    ? 'border-r border-hairline'
+    : ''}"
+>
+  {#if sidebar}
+    <SidebarHeader title="Connections">
+      {#snippet actions()}
+        <Button
+          variant="ghost"
+          size="xs"
+          class="size-6 p-0"
+          aria-label="Add connection"
+          title="Add connection"
+          disabled={busy}
+          onclick={() => {
+            query = "";
+            onAdd();
+          }}><PlusIcon class="size-3.5" /></Button
+        >
+      {/snippet}
+    </SidebarHeader>
+  {/if}
   <div
-    class="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline p-3"
+    class="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline py-2 {sidebar
+      ? 'px-3'
+      : 'px-5'}"
   >
-    <Button
-      variant={creating ? "soft" : "default"}
-      class="justify-start"
-      disabled={busy}
-      onclick={() => {
-        query = "";
-        onAdd();
-      }}><PlusIcon />Add connection</Button
-    >
-    <div class="relative min-w-40 flex-1">
+    {#if !sidebar}<Button
+        variant={creating ? "soft" : "default"}
+        class="justify-start"
+        disabled={busy}
+        onclick={() => {
+          query = "";
+          onAdd();
+        }}><PlusIcon />Add connection</Button
+      >{/if}
+    <div class="relative min-w-0 flex-1">
       <SearchIcon
-        class="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground"
+        class="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+        aria-hidden="true"
       />
-      <input
+      <Input
         aria-label="Search saved connections"
         placeholder="Search connections…"
         bind:value={query}
-        class="h-9 w-full rounded-md border border-input bg-background pl-8 pr-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onkeydown={(event) => {
+          if (event.key === "Escape" && query) {
+            event.preventDefault();
+            event.stopPropagation();
+            query = "";
+          }
+        }}
+        class="pl-8 pr-2"
       />
     </div>
   </div>
+  {#if !sidebar}<div
+      class="flex h-[26px] shrink-0 items-center px-5 text-[10px] font-semibold tracking-[0.07em] text-ink-quiet uppercase"
+    >
+      <span class="min-w-0 flex-1">Name</span>
+      <span class="hidden w-[190px] shrink-0 @min-[810px]/connections:block"
+        >Endpoint</span
+      >
+      <span class="hidden w-[130px] shrink-0 @min-[980px]/connections:block"
+        >Provider</span
+      >
+      <span class="hidden w-[140px] shrink-0 @min-[620px]/connections:block"
+        >Used by</span
+      >
+      <span class="w-[104px] shrink-0">State</span>
+    </div>{/if}
   <nav
     aria-label="Saved connections"
-    class="connection-list-content min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-1.5 p-3"
+    class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"
   >
     {#each entries as connection (connection.id)}
       {@const active = connectionWorkflows.filter(
@@ -77,48 +128,63 @@
       )}
       {@const runtimeView = runtimePresentation(instance?.status)}
       {@const metadata = connection.details.managedInstanceID
-        ? [
-            connection.builtIn ? "Built-in" : "Local runtime",
-            runtimeView.backend,
-            active.map((role) => role.label).join(", "),
-          ]
-            .filter(Boolean)
-            .join(" · ")
-        : [
-            connectionTargetLabel(connection, instances),
-            active.length
-              ? `In use: ${active.map((role) => role.label).join(", ")}`
-              : "",
-          ]
-            .filter(Boolean)
-            .join(" · ")}
+        ? ["Managed runtime", runtimeView.backend].filter(Boolean).join(" · ")
+        : connection.details.compatibilityProfile || "OpenAI-compatible"}
+      {@const usedBy = active.map((role) => role.label).join(", ")}
+      {@const endpoint = connection.details.managedInstanceID
+        ? endpointHost(connection.details.baseURL ?? "")
+        : connectionTargetLabel(connection, instances)}
       <button
         type="button"
         disabled={busy}
         aria-current={connection.id === selected ? "true" : undefined}
         onclick={() => onSelect(connection)}
-        class={`connection-row w-full items-center gap-x-3 gap-y-1.5 rounded-xl border px-3 py-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${connection.id === selected ? "border-accent-edge bg-accent-wash" : "border-hairline bg-card hover:border-accent-edge hover:bg-subtle-fill-hover"}`}
+        class={`connection-row flex w-full border-b border-l-2 border-b-hairline text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50 ${sidebar ? "min-h-[60px] flex-col items-stretch gap-0.5 pl-2.5 pr-3 py-1.5" : "min-h-[52px] items-center pl-[18px] pr-5"} ${connection.id === selected ? "border-l-primary bg-accent-wash" : "border-l-transparent hover:bg-subtle-fill-hover"}`}
       >
-        <span
-          class="connection-icon flex size-10 shrink-0 items-center justify-center rounded-lg border border-hairline bg-background"
-        >
+        <span class="flex min-w-0 flex-1 items-center gap-2.5">
           <ProviderIcon
             profile={connectionProvider(connection, instances)}
-            size={24}
+            size={16}
           />
-        </span>
-        <span class="connection-copy min-w-0">
-          <span class="block truncate text-sm font-semibold text-foreground"
-            >{connection.name}</span
-          >
           <span
-            class="mt-1 block truncate text-xs text-secondary-foreground"
-            title={metadata}>{metadata}</span
+            class="min-w-0 truncate text-[13px] text-foreground"
+            title={connection.name}>{connection.name}</span
           >
+          {#if connection.builtIn && !sidebar}
+            <span
+              class="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-[10px] text-ink-quiet"
+              >built-in</span
+            >
+          {/if}
         </span>
-        <span class="connection-status min-w-0">
+        <span
+          class="shrink-0 truncate font-mono text-[10px] text-secondary-foreground {sidebar
+            ? 'pl-[26px]'
+            : 'hidden w-[190px] @min-[810px]/connections:block'}"
+          title={endpoint}>{endpoint}</span
+        >
+        <span
+          class="hidden w-[130px] shrink-0 truncate text-[11.5px] text-muted-foreground {sidebar
+            ? ''
+            : '@min-[980px]/connections:block'}"
+          title={metadata}>{metadata}</span
+        >
+        <span
+          class="hidden w-[140px] shrink-0 truncate text-[11.5px] {sidebar
+            ? ''
+            : '@min-[620px]/connections:block'} {usedBy
+            ? 'text-secondary-foreground'
+            : 'text-ink-quiet'}"
+          title={usedBy || "Not in use"}>{usedBy || "Not in use"}</span
+        >
+        <span
+          class="flex shrink-0 items-center {sidebar
+            ? 'min-w-0 gap-1.5 pl-[26px]'
+            : 'w-[104px]'}"
+        >
           {#if connection.details.managedInstanceID}
             <StatusBadge
+              class="shrink-0 whitespace-nowrap"
               tone={instance?.status.state === "running"
                 ? "success"
                 : instance?.status.state === "error"
@@ -129,58 +195,51 @@
               dot>{runtimeView.label}</StatusBadge
             >
           {:else if active.length}
-            <span title={active.map((role) => role.label).join(" · ")}
-              ><StatusBadge tone="accent">In use</StatusBadge></span
+            <StatusBadge tone="accent" class="shrink-0 whitespace-nowrap"
+              >In use</StatusBadge
             >
           {/if}
+          {#if sidebar}
+            <span
+              class="min-w-0 truncate text-[11px] text-muted-foreground"
+              title={usedBy ||
+                (connection.builtIn
+                  ? "Built-in connection · Not in use"
+                  : "Not in use")}
+            >
+              {usedBy ||
+                (connection.builtIn ? "Built-in · Not in use" : "Not in use")}
+            </span>
+          {/if}
         </span>
-        <span class="connection-chevron"
-          ><ChevronRightIcon class="size-4 text-secondary-foreground" /></span
-        >
       </button>
-    {:else}<p class="px-3 py-6 text-center text-sm text-muted-foreground">
-        {query
-          ? "No matching connections."
-          : "Add a server connection or set up a local runtime. Its built-in connection appears automatically."}
-      </p>{/each}
+    {:else}
+      <div class="space-y-3 px-3 py-4">
+        <p class="content-meta" role="status">
+          {query
+            ? "No matching connections."
+            : "Add a server connection or set up a local runtime. Its built-in connection appears automatically."}
+        </p>
+        <Button
+          variant="outline"
+          size="xs"
+          disabled={busy}
+          onclick={() => {
+            if (query) query = "";
+            else onAdd();
+          }}>{query ? "Clear search" : "Add connection"}</Button
+        >
+      </div>
+    {/each}
   </nav>
   <p
-    class="shrink-0 border-t border-hairline px-4 py-2 text-xs text-muted-foreground"
+    class="shrink-0 border-t border-hairline py-2 text-xs text-muted-foreground {sidebar
+      ? 'px-3'
+      : 'px-5'}"
+    role="status"
   >
-    {catalog.entries?.length ?? 0} connections
+    {#if query}{entries.length} of
+    {/if}{catalog.entries?.length ?? 0}
+    {catalog.entries?.length === 1 ? "connection" : "connections"}
   </p>
 </div>
-
-<style>
-  .connection-list-content {
-    container-type: inline-size;
-  }
-  .connection-row {
-    display: grid;
-    grid-template-columns: 2.5rem minmax(0, 1fr) auto 1rem;
-  }
-  @container (max-width: 20rem) {
-    .connection-row {
-      grid-template-columns: 2.5rem minmax(0, 1fr) 1rem;
-    }
-    .connection-icon {
-      grid-column: 1;
-      grid-row: 1 / span 2;
-    }
-    .connection-copy {
-      grid-column: 2;
-      grid-row: 1;
-    }
-    .connection-status {
-      grid-column: 2;
-      grid-row: 2;
-    }
-    .connection-status:empty {
-      display: none;
-    }
-    .connection-chevron {
-      grid-column: 3;
-      grid-row: 1 / span 2;
-    }
-  }
-</style>
